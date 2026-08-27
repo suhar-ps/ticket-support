@@ -5,9 +5,10 @@ import { useAuth } from '../context/AuthContext'
 import { ASSET_TYPES, PRIORITIES } from '../data/constants'
 
 export default function NewTicket() {
-  const { user, profile } = useAuth()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [categories, setCategories] = useState([])
+  const [companies, setCompanies] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -15,6 +16,7 @@ export default function NewTicket() {
     title: '',
     description: '',
     categoryId: '',
+    companyId: '',
     assetType: 'computer',
     assetIdentifier: '',
     location: '',
@@ -29,6 +31,15 @@ export default function NewTicket() {
       .then(({ data }) => {
         setCategories(data || [])
         if (data?.length) setForm((f) => ({ ...f, categoryId: data[0].id }))
+      })
+
+    supabase
+      .from('companies')
+      .select('id, name')
+      .order('name')
+      .then(({ data }) => {
+        setCompanies(data || [])
+        if (data?.length) setForm((f) => ({ ...f, companyId: data[0].id }))
       })
   }, [])
 
@@ -47,7 +58,7 @@ export default function NewTicket() {
         title: form.title,
         description: form.description,
         category_id: form.categoryId,
-        company_id: profile.company_id,
+        company_id: form.companyId,
         asset_type: form.assetType,
         asset_identifier: form.assetIdentifier || null,
         location: form.location || null,
@@ -85,6 +96,20 @@ export default function NewTicket() {
             value={form.title}
             onChange={(e) => update('title', e.target.value)}
           />
+        </div>
+
+        <div>
+          <label className="label" htmlFor="company">Perusahaan</label>
+          <select
+            id="company"
+            className="input"
+            value={form.companyId}
+            onChange={(e) => update('companyId', e.target.value)}
+          >
+            {companies.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

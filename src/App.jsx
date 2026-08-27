@@ -5,11 +5,14 @@ import LoadingSpinner from './components/LoadingSpinner'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
 import UserDashboard from './pages/UserDashboard'
 import NewTicket from './pages/NewTicket'
 import TicketDetail from './pages/TicketDetail'
 import SupportDashboard from './pages/SupportDashboard'
 import SupervisorDashboard from './pages/SupervisorDashboard'
+import UserAdministration from './pages/UserAdministration'
 
 function HomeByRole() {
   const { profile, loading } = useAuth()
@@ -25,6 +28,8 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
 
       <Route
         path="/"
@@ -49,6 +54,15 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Layout><TicketDetail /></Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/users"
+        element={
+          <ProtectedRoute allowedRoles={['supervisor']}>
+            <Layout><UserAdministration /></Layout>
           </ProtectedRoute>
         }
       />

@@ -19,7 +19,7 @@ Stack: **React + Vite + Tailwind CSS** (frontend, di-hosting di **Netlify**) dan
 |---|---|
 | **Pelapor (User)** | Membuat tiket baru, memilih perusahaan & kategori masalah, melihat status tiket miliknya, menambahkan catatan tambahan |
 | **Tim Support** | Melihat semua tiket dari semua perusahaan, filter & pencarian, mengubah status, menugaskan ke diri sendiri/rekan, mencatat riwayat perbaikan |
-| **Supervisor** | Dashboard laporan (grafik per status/kategori/perusahaan, rata-rata waktu penyelesaian), tabel detail, ekspor CSV — akses baca saja |
+| **Supervisor** | Dashboard laporan (grafik per status/kategori/perusahaan, rata-rata waktu penyelesaian), tabel detail, ekspor CSV, dan Administrasi Pengguna (tambah, edit, ganti password, hapus, ubah role) |
 
 **Perusahaan** yang sudah tersedia: PT SAS International, PT Petrindo Semesta, PT Sarana
 Instrument, PT Omni Composite Solutions, PT Mika Tunggal, PT Agora.
@@ -34,12 +34,15 @@ Maintenance, Housekeeping & Environment, Security & Access Control.
 ```
 ticketing-app/
 ├── supabase/
-│   └── schema.sql          ← Jalankan sekali di Supabase SQL Editor
+│   ├── schema.sql                    ← Jalankan sekali (dan ulang tiap update) di SQL Editor
+│   └── functions/
+│       ├── admin-create-user/        ← Edge Function, deploy dengan Supabase CLI
+│       └── admin-set-password/       ← Edge Function, deploy dengan Supabase CLI
 ├── src/
 │   ├── lib/supabaseClient.js
 │   ├── context/AuthContext.jsx
 │   ├── components/         ← Layout, badge status/prioritas, kartu tiket, dll.
-│   ├── pages/               ← Login, Register, Dashboard per role, Detail Tiket
+│   ├── pages/               ← Login, Register, Dashboard per role, Administrasi Pengguna, dll.
 │   └── data/constants.js
 ├── netlify.toml
 ├── .env.example
@@ -61,6 +64,32 @@ ticketing-app/
 5. Buka **Project Settings → API**, catat dua nilai berikut untuk langkah selanjutnya:
    - **Project URL**
    - **anon public key**
+6. Buka **Authentication → URL Configuration**, tambahkan URL berikut ke **Redirect URLs**
+   (dibutuhkan untuk fitur "Lupa Kata Sandi" agar tautan di email diizinkan mengarah balik
+   ke aplikasi Anda):
+   - `http://localhost:5173/reset-password` (untuk uji coba lokal)
+   - `https://domain-netlify-anda.netlify.app/reset-password` (isi setelah situs Anda
+     ter-deploy di Netlify; bisa ditambahkan belakangan)
+
+### Edge Functions untuk fitur admin (opsional, tapi disarankan)
+
+Mengubah role, mengedit nama, atau menghapus pengguna cukup lewat SQL biasa (sudah termasuk
+dalam `schema.sql`). Tapi **membuat akun baru** dan **mengatur ulang password pengguna lain**
+wajib lewat Admin API Supabase (bukan SQL biasa), sehingga butuh dua Edge Function:
+
+```bash
+npm install -g supabase
+supabase login
+supabase link --project-ref xxxxxxxxxxxx   # Project Ref ada di Project Settings > General
+supabase functions deploy admin-create-user
+supabase functions deploy admin-set-password
+```
+
+Tidak perlu mengatur secret apa pun — `SUPABASE_URL`, `SUPABASE_ANON_KEY`, dan
+`SUPABASE_SERVICE_ROLE_KEY` otomatis tersedia di setiap Edge Function. Jika langkah ini
+dilewati, seluruh fitur lain tetap berjalan normal — hanya tombol **"+ Tambah Pengguna"**
+dan **"Ganti Password"** di halaman Administrasi Pengguna yang akan menampilkan pesan bahwa
+function terkait belum ter-deploy.
 
 ---
 
@@ -74,8 +103,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Buka `http://localhost:5173`, klik **Daftar**, buat akun untuk masing-masing peran
-(Pelapor, Support, Supervisor) agar bisa mencoba ketiga sisi aplikasi.
+Buka `http://localhost:5173` untuk mencoba aplikasi.
 
 ---
 
@@ -114,33 +142,75 @@ variables**) sebelum atau setelah deploy, lalu **trigger deploy ulang** agar ter
 
 ## 6. Alur Penggunaan Cepat
 
-1. **Daftar** sebagai Pelapor → pilih perusahaan → buat tiket baru (kategori, jenis aset,
-   prioritas, deskripsi).
-2. **Daftar akun kedua** sebagai Tim Support → login → tiket akan muncul di Antrian
-   Support → ubah status (Baru → Sedang Dikerjakan → Selesai) dan tambahkan catatan
-   perbaikan.
-3. **Daftar akun ketiga** sebagai Supervisor → login → lihat grafik dan tabel laporan di
-   seluruh perusahaan.
+Pendaftaran publik (`/register`) selalu membuat akun dengan role **Pelapor** — tidak ada
+pilihan role di form itu. Untuk mendapatkan akun Support/Supervisor:
+
+1. **Daftar** akun pertama lewat halaman Daftar (otomatis jadi Pelapor).
+2. **Angkat akun itu jadi Supervisor** satu kali lewat SQL Editor (lihat Bagian 7) — ini
+   satu-satunya langkah manual yang dibutuhkan, untuk "membuka pintu" pertama kali.
+3. **Login sebagai Supervisor** → buka menu **Administrasi Pengguna** → klik
+   **"+ Tambah Pengguna"** untuk membuat akun Support (dan Supervisor lain bila perlu)
+   langsung dari aplikasi, lengkap dengan password awal.
+4. **Login sebagai Support** → buat tiket lewat akun Pelapor mana pun → tiket langsung
+   muncul di **Antrian Support** → ubah status & tambahkan catatan perbaikan.
+5. **Login sebagai Supervisor** lagi → lihat grafik dan tabel laporan di menu
+   **Laporan & Analitik**.
+
+**Lupa kata sandi?** Ada dua jalur:
+- **Self-service**: klik "Lupa kata sandi?" di halaman Masuk → masukkan email → klik tautan
+  yang dikirim ke email tersebut → atur kata sandi baru.
+- **Dibantu Supervisor**: Supervisor buka **Administrasi Pengguna** → klik **"Ganti
+  Password"** di baris pengguna terkait → masukkan kata sandi baru untuknya langsung
+  (berguna kalau pengguna tidak punya akses ke emailnya).
 
 ---
 
-## 7. Catatan Keamanan untuk Produksi
+## 7. Cara Kerja Role & Cara Mengubahnya
 
-Untuk mempermudah demo, halaman **Daftar** mengizinkan pengguna memilih perannya sendiri
-(User / Support / Supervisor). Untuk penggunaan produksi sebaiknya:
+Role pengguna disimpan di dua tempat yang saling sinkron: kolom `profiles.role` (dibaca
+real-time untuk visibilitas tiket, sehingga tiket langsung terlihat oleh Support tanpa
+perlu logout/login) dan klaim JWT `app_metadata` (dipakai khusus untuk kebijakan tabel
+`profiles` itu sendiri, demi menghindari rekursi RLS).
 
-- Set peran default seluruh akun baru menjadi `user` di database (`profiles.role`), lalu
-  ubah menjadi `support` / `supervisor` secara manual melalui **Supabase Dashboard → Table
-  Editor → profiles**, atau bangun panel admin terpisah.
+**Sehari-hari — lewat aplikasi, sebagai Supervisor, di menu Administrasi Pengguna:**
+- **Tambah**: tombol "+ Tambah Pengguna" (butuh Edge Function `admin-create-user` sudah
+  ter-deploy, lihat Bagian 3).
+- **Ubah role**: dropdown role di tiap baris.
+- **Edit nama**: tombol "Edit" di tiap baris.
+- **Ganti password**: tombol "Ganti Password" di tiap baris (butuh Edge Function
+  `admin-set-password` sudah ter-deploy, lihat Bagian 3) — berguna untuk pengguna yang lupa
+  kata sandi tapi tidak punya akses ke email terdaftarnya.
+- **Hapus**: tombol "Hapus" — ditolak dengan pesan yang jelas apabila pengguna tersebut
+  masih memiliki riwayat tiket (sebagai pelapor atau petugas yang ditugaskan), supaya
+  riwayat tiket tidak pernah hilang tanpa sengaja.
+
+**Bootstrap Supervisor pertama** (belum ada Supervisor sama sekali, jadi belum ada yang
+bisa membuka halaman Administrasi Pengguna): jalankan sekali lewat **SQL Editor**:
+
+```sql
+select public.set_user_role('uuid-user-yang-dituju', 'supervisor');
+```
+
+Cara mendapatkan UUID: buka **Authentication → Users** di Supabase Dashboard, atau jalankan
+`select id, email from auth.users;` di SQL Editor.
+
+Setelah role seseorang diubah (baik lewat aplikasi maupun SQL), minta orang tersebut
+**logout lalu login lagi** (atau tunggu refresh token otomatis, biasanya kurang dari 1 jam)
+supaya JWT barunya membawa klaim role yang baru — ini memengaruhi kemampuan melihat daftar
+profil pengguna lain (mis. dropdown "Ditugaskan ke"), meski visibilitas tiket sendiri sudah
+langsung berubah tanpa perlu itu.
+
+## 8. Catatan Keamanan untuk Produksi
+
 - Aktifkan **Confirm email** di Supabase agar alamat email pelapor terverifikasi.
-- Pertimbangkan menonaktifkan pendaftaran umum dan mengundang pengguna melalui
-  **Authentication → Users → Invite user** jika akses harus tertutup untuk karyawan saja.
+- Pertimbangkan menonaktifkan pendaftaran umum (`/register`) dan membuat seluruh akun staf
+  lewat menu Administrasi Pengguna saja, jika akses harus tertutup untuk karyawan tertentu.
 - Tinjau kembali kebijakan Row Level Security (`supabase/schema.sql`) apabila ada kebutuhan
   akses tambahan, misalnya supervisor per-perusahaan (bukan lintas semua perusahaan).
 
 ---
 
-## 8. Kustomisasi
+## 9. Kustomisasi
 
 - **Menambah/ubah perusahaan atau kategori**: edit langsung lewat Supabase Table Editor
   pada tabel `companies` / `categories`, atau jalankan `INSERT` SQL tambahan.

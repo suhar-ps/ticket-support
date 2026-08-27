@@ -8,11 +8,14 @@ const NAV_BY_ROLE = {
     { to: '/tickets/new', label: 'Buat Tiket' },
   ],
   support: [{ to: '/', label: 'Antrian Support' }],
-  supervisor: [{ to: '/', label: 'Laporan & Analitik' }],
+  supervisor: [
+    { to: '/', label: 'Laporan & Analitik' },
+    { to: '/admin/users', label: 'Administrasi Pengguna' },
+  ],
 }
 
 export default function Layout({ children }) {
-  const { profile, signOut } = useAuth()
+  const { profile, profileError, loading, session, signOut, refreshProfile } = useAuth()
   const navigate = useNavigate()
 
   const navItems = NAV_BY_ROLE[profile?.role] || []
@@ -20,6 +23,30 @@ export default function Layout({ children }) {
   async function handleSignOut() {
     await signOut()
     navigate('/login')
+  }
+
+  // Sesi login berhasil tapi baris profil gagal/belum bisa dimuat.
+  // Ditampilkan sebagai pesan yang jelas dengan opsi tindakan, bukan
+  // spinner tak berujung.
+  if (!loading && session && !profile) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
+        <div className="card max-w-sm p-6 text-center">
+          <p className="mb-1 font-display text-lg font-bold text-ink">Gagal Memuat Profil</p>
+          <p className="mb-4 text-sm text-ink-light">
+            {profileError || 'Akun Anda belum memiliki data profil di database.'}
+          </p>
+          <div className="flex justify-center gap-2">
+            <button onClick={refreshProfile} className="btn-secondary">
+              Coba Lagi
+            </button>
+            <button onClick={handleSignOut} className="btn-primary">
+              Keluar
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -61,7 +88,7 @@ export default function Layout({ children }) {
                 {profile?.full_name || '...'}
               </p>
               <p className="text-xs text-ink-light leading-tight">
-                {ROLE_LABELS[profile?.role] || ''} · {profile?.companies?.name || ''}
+                {ROLE_LABELS[profile?.role] || ''}
               </p>
             </div>
             <button onClick={handleSignOut} className="btn-secondary !px-3 !py-2 text-xs">

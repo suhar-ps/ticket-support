@@ -6,6 +6,7 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
+  const [profileError, setProfileError] = useState('')
   const [loading, setLoading] = useState(true)
 
   const fetchProfile = useCallback(async (userId) => {
@@ -14,7 +15,17 @@ export function AuthProvider({ children }) {
       .select('*, companies(id, name)')
       .eq('id', userId)
       .single()
-    if (!error) setProfile(data)
+    if (error) {
+      // Ditangkap secara eksplisit (bukan diabaikan) agar UI bisa
+      // menampilkan pesan yang jelas alih-alih macet di layar loading
+      // tanpa penjelasan.
+      console.error('Gagal memuat profil:', error.message)
+      setProfileError(error.message)
+      setProfile(null)
+    } else {
+      setProfileError('')
+      setProfile(data)
+    }
     return data
   }, [])
 
@@ -52,6 +63,7 @@ export function AuthProvider({ children }) {
     session,
     user: session?.user || null,
     profile,
+    profileError,
     loading,
     signOut,
     refreshProfile: () => session && fetchProfile(session.user.id),

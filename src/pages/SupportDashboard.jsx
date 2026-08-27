@@ -7,17 +7,19 @@ import { STATUSES, PRIORITIES } from '../data/constants'
 export default function SupportDashboard() {
   const [tickets, setTickets] = useState([])
   const [categories, setCategories] = useState([])
+  const [companies, setCompanies] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [companyFilter, setCompanyFilter] = useState('all')
 
   useEffect(() => {
     let active = true
     async function load() {
       setLoading(true)
-      const [{ data: ticketData }, { data: categoryData }] = await Promise.all([
+      const [{ data: ticketData }, { data: categoryData }, { data: companyData }] = await Promise.all([
         supabase
           .from('tickets')
           .select(
@@ -25,10 +27,12 @@ export default function SupportDashboard() {
           )
           .order('created_at', { ascending: false }),
         supabase.from('categories').select('id, name').order('name'),
+        supabase.from('companies').select('id, name').order('name'),
       ])
       if (active) {
         setTickets(ticketData || [])
         setCategories(categoryData || [])
+        setCompanies(companyData || [])
         setLoading(false)
       }
     }
@@ -41,6 +45,7 @@ export default function SupportDashboard() {
       if (statusFilter !== 'all' && t.status !== statusFilter) return false
       if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false
       if (categoryFilter !== 'all' && t.category_id !== categoryFilter) return false
+      if (companyFilter !== 'all' && t.company_id !== companyFilter) return false
       if (search.trim()) {
         const q = search.toLowerCase()
         return (
@@ -52,7 +57,7 @@ export default function SupportDashboard() {
       }
       return true
     })
-  }, [tickets, statusFilter, priorityFilter, categoryFilter, search])
+  }, [tickets, statusFilter, priorityFilter, categoryFilter, companyFilter, search])
 
   const openCount = tickets.filter((t) => t.status === 'open').length
   const inProgressCount = tickets.filter((t) => t.status === 'in_progress').length
@@ -89,6 +94,10 @@ export default function SupportDashboard() {
         <select className="input sm:max-w-[12rem]" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
           <option value="all">Semua Kategori</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select className="input sm:max-w-[14rem]" value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
+          <option value="all">Semua Perusahaan</option>
+          {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </div>
 

@@ -1,31 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
-import { ROLE_LABELS } from '../data/constants'
+
+// Role awal SELALU 'user' — pendaftaran publik tidak pernah membuat
+// akun Support/Supervisor. Kenaikan role hanya dilakukan oleh
+// Supervisor lewat halaman Administrasi Pengguna (atau lewat SQL Editor
+// untuk mengangkat Supervisor pertama kali).
+const DEFAULT_ROLE = 'user'
 
 export default function Register() {
-  const [companies, setCompanies] = useState([])
   const [form, setForm] = useState({
     fullName: '',
     email: '',
     password: '',
-    companyId: '',
-    role: 'user',
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
-
-  useEffect(() => {
-    supabase
-      .from('companies')
-      .select('id, name')
-      .order('name')
-      .then(({ data }) => {
-        setCompanies(data || [])
-        if (data?.length) setForm((f) => ({ ...f, companyId: data[0].id }))
-      })
-  }, [])
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -44,6 +35,16 @@ export default function Register() {
     const { data, error: signUpError } = await supabase.auth.signUp({
       email: form.email,
       password: form.password,
+      options: {
+        // Disimpan sebagai metadata di auth.users. Dibaca oleh trigger
+        // database (handle_new_user) untuk membuat baris profil secara
+        // otomatis, terlepas dari apakah sesi login sudah aktif atau
+        // belum (mis. saat "Confirm email" masih diwajibkan).
+        data: {
+          full_name: form.fullName,
+          role: DEFAULT_ROLE,
+        },
+      },
     })
 
     if (signUpError) {
@@ -55,27 +56,32 @@ export default function Register() {
     const userId = data.user?.id
     if (!userId) {
       setLoading(false)
-      setError('Pendaftaran berhasil, tetapi perlu verifikasi email sebelum bisa masuk.')
+      setError('Pendaftaran gagal, silakan coba lagi.')
       return
     }
 
-    const { error: profileError } = await supabase.from('profiles').insert({
-      id: userId,
-      full_name: form.fullName,
-      role: form.role,
-      company_id: form.companyId,
-    })
+    // Jika sesi langsung aktif (email confirmation nonaktif), samakan
+    // data profil sebagai jaring pengaman — trigger di database sudah
+    // membuat baris ini, upsert di sini hanya memastikan datanya sesuai
+    // dengan yang baru saja diisi di form.
+    if (data.session) {
+      await supabase.from('profiles').upsert(
+        {
+          id: userId,
+          full_name: form.fullName,
+          role: DEFAULT_ROLE,
+        },
+        { onConflict: 'id' }
+      )
+    }
 
     setLoading(false)
-
-    if (profileError) {
-      setError('Akun dibuat, namun gagal menyimpan profil: ' + profileError.message)
-      return
-    }
 
     if (data.session) {
       navigate('/')
     } else {
+      setError('')
+      alert('Pendaftaran berhasil. Silakan cek email Anda untuk verifikasi sebelum masuk.')
       navigate('/login')
     }
   }
@@ -125,45 +131,6 @@ export default function Register() {
               value={form.password}
               onChange={(e) => update('password', e.target.value)}
             />
-          </div>
-
-          <div>
-            <label className="label" htmlFor="company">Perusahaan</label>
-            <select
-              id="company"
-              className="input"
-              value={form.companyId}
-              onChange={(e) => update('companyId', e.target.value)}
-            >
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="label">Peran</label>
-            <div className="grid grid-cols-3 gap-2">
-              {Object.entries(ROLE_LABELS).map(([value, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  onClick={() => update('role', value)}
-                  className={`rounded-lg px-2 py-2.5 text-xs font-semibold ring-1 ring-inset transition-colors ${
-                    form.role === value
-                      ? 'bg-brand-600 text-white ring-brand-600'
-                      : 'bg-white text-ink-light ring-gray-200 hover:bg-brand-50'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <p className="mt-1.5 text-xs text-ink-light">
-              Untuk demo, peran dapat dipilih sendiri. Di lingkungan produksi, sebaiknya peran
-              &quot;Support&quot; dan &quot;Supervisor&quot; hanya diberikan oleh admin melalui
-              Supabase Dashboard.
-            </p>
           </div>
 
           {error && (
