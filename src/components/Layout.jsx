@@ -13,11 +13,13 @@ const NAV_BY_ROLE = {
   supervisor: [
     { to: '/', label: 'Laporan & Analitik' },
     { to: '/tickets/new', label: 'Buat Tiket' },
+    { to: '/my-tickets', label: 'Tiket Saya' },
     { to: '/queue', label: 'Antrian Support' },
   ],
   superadmin: [
     { to: '/', label: 'Laporan & Analitik' },
     { to: '/tickets/new', label: 'Buat Tiket' },
+    { to: '/my-tickets', label: 'Tiket Saya' },
     { to: '/queue', label: 'Antrian Support' },
     { to: '/admin/users', label: 'Administrasi Pengguna' },
   ],

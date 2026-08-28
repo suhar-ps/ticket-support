@@ -60,6 +60,15 @@ export default function App() {
       />
 
       <Route
+        path="/my-tickets"
+        element={
+          <ProtectedRoute allowedRoles={['user', 'supervisor', 'superadmin']}>
+            <Layout><UserDashboard /></Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/tickets/:id"
         element={
           <ProtectedRoute>
