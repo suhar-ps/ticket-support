@@ -10,9 +10,15 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   const fetchProfile = useCallback(async (userId) => {
+    // Cukup '*' — profiles punya DUA foreign key ke companies
+    // (company_id & default_company_id), jadi embed otomatis
+    // "companies(...)" jadi ambigu bagi PostgREST ("more than one
+    // relationship was found"). Tidak masalah, karena hasil embed itu
+    // toh tidak dipakai di mana pun — nama perusahaan default diambil
+    // terpisah (client-side) di halaman Laporan & Analitik.
     const { data, error } = await supabase
       .from('profiles')
-      .select('*, companies(id, name)')
+      .select('*')
       .eq('id', userId)
       .single()
     if (error) {
