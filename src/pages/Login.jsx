@@ -34,7 +34,7 @@ export default function Login() {
           <h1 className="font-display text-2xl font-bold text-ink">FixHub</h1>
           <p className="mt-1 text-sm text-ink-light">
             Sistem Terpadu Pelaporan Masalah &amp; Pelacakan Proses Perbaikan Aset,
-            Infrastruktur, dan Fasilitas Gedung SAS Group
+            Infrastruktur serta Fasilitas Gedung SAS Group
           </p>
         </div>
 
