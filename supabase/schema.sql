@@ -71,9 +71,14 @@ create table if not exists profiles (
   full_name text not null,
   role text not null default 'user',
   company_id uuid references companies(id),
+  default_company_id uuid references companies(id),
   phone text,
   created_at timestamptz default now()
 );
+
+-- Untuk database yang sudah lebih dulu ada (kolom ini ditambahkan
+-- belakangan) — aman dijalankan ulang.
+alter table profiles add column if not exists default_company_id uuid references companies(id);
 
 -- Pastikan RLS tidak "dipaksakan" ke pemilik tabel (default Postgres
 -- memang begini, baris ini hanya menjamin eksplisit).
@@ -210,6 +215,7 @@ for each row execute function set_ticket_timestamps();
 drop policy if exists "staff read all profiles" on profiles;
 drop policy if exists "staff read all tickets" on tickets;
 drop policy if exists "support update tickets" on tickets;
+drop policy if exists "staff update tickets" on tickets;
 drop policy if exists "insert ticket update" on ticket_updates;
 drop policy if exists "read ticket updates" on ticket_updates;
 drop function if exists public.current_user_role();
@@ -273,6 +279,38 @@ create policy "insert own profile" on profiles for insert with check (auth.uid()
 
 drop policy if exists "update own profile" on profiles;
 create policy "update own profile" on profiles for update using (auth.uid() = id);
+
+-- ---------------------------------------------------------------------
+-- PENGAMANAN TAMBAHAN: kebijakan "update own profile" di atas hanya
+-- membatasi BARIS mana yang boleh diubah (milik sendiri), bukan KOLOM
+-- apa yang boleh diubah. Tanpa penjaga ini, siapa pun secara teknis
+-- bisa memanggil API langsung untuk mengubah kolom role/company_id di
+-- baris miliknya sendiri dan menaikkan hak aksesnya sendiri. Trigger
+-- ini menutup celah itu: perubahan role/company_id lewat UPDATE biasa
+-- hanya diizinkan jika pemanggilnya sudah Super Admin (jalur resmi
+-- untuk staf tetap lewat fungsi set_user_role, bukan lewat trigger ini).
+-- ---------------------------------------------------------------------
+create or replace function public.guard_profile_privileged_columns()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.role is distinct from old.role and public.current_user_role() <> 'superadmin' then
+    raise exception 'Tidak diizinkan mengubah role lewat cara ini.';
+  end if;
+
+  if new.company_id is distinct from old.company_id and public.current_user_role() <> 'superadmin' then
+    raise exception 'Tidak diizinkan mengubah company_id lewat cara ini.';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_guard_profile_privileged_columns on profiles;
+create trigger trg_guard_profile_privileged_columns
+before update on profiles
+for each row execute function public.guard_profile_privileged_columns();
 
 -- Tickets
 drop policy if exists "user insert own ticket" on tickets;

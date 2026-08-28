@@ -20,7 +20,7 @@ Stack: **React + Vite + Tailwind CSS** (frontend, di-hosting di **Netlify**) dan
 |---|---|
 | **Pelapor (User)** | Membuat tiket baru, memilih perusahaan & kategori masalah, melihat status tiket miliknya, menambahkan catatan tambahan |
 | **Tim Support** | Melihat semua tiket dari semua perusahaan, filter & pencarian, mengubah status, menugaskan ke diri sendiri/rekan, mencatat riwayat perbaikan |
-| **Supervisor** | Semua kemampuan Support (bisa ikut melaporkan tiket baru & melakukan perbaikan) **ditambah** Dashboard Laporan & Analitik dengan filter periode tanggal (grafik per status/kategori/perusahaan, rata-rata waktu penyelesaian), tabel detail yang bisa diklik untuk lihat isi & riwayat tanggapan tiket, dan ekspor CSV |
+| **Supervisor** | Semua kemampuan Support (bisa ikut melaporkan tiket baru & melakukan perbaikan) **ditambah** Dashboard Laporan & Analitik dengan filter periode tanggal & perusahaan (bisa disimpan sebagai tampilan default pribadi), grafik per status/kategori/perusahaan, rata-rata waktu penyelesaian, tabel detail yang bisa diklik untuk lihat isi & riwayat tanggapan tiket, dan ekspor CSV |
 | **Super Admin** | Semua kemampuan Supervisor **ditambah** Administrasi Pengguna (tambah, edit, ganti password, hapus, ubah role) — satu-satunya peran yang bisa mengelola akun pengguna lain |
 
 **Perusahaan** yang sudah tersedia: PT SAS International, PT Petrindo Semesta, PT Sarana

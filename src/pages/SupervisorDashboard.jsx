@@ -4,6 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
 import { supabase } from '../lib/supabaseClient'
+import { useAuth } from '../context/AuthContext'
 import LoadingSpinner from '../components/LoadingSpinner'
 import StatusBadge from '../components/StatusBadge'
 import PriorityBadge from '../components/PriorityBadge'
@@ -35,13 +36,16 @@ function defaultDateRange() {
 
 export default function SupervisorDashboard() {
   const navigate = useNavigate()
+  const { user, profile, refreshProfile } = useAuth()
   const [tickets, setTickets] = useState([])
   const [companies, setCompanies] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
-  const [companyFilter, setCompanyFilter] = useState('all')
+  const [companyFilter, setCompanyFilter] = useState(profile?.default_company_id || 'all')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [{ from: dateFrom, to: dateTo }, setDateRange] = useState(defaultDateRange)
+  const [savingDefault, setSavingDefault] = useState(false)
+  const [defaultSaved, setDefaultSaved] = useState(false)
 
   function setDateFrom(value) {
     setDateRange((r) => ({ ...r, from: value }))
@@ -51,6 +55,20 @@ export default function SupervisorDashboard() {
   }
   function resetDateRange() {
     setDateRange(defaultDateRange())
+  }
+
+  async function handleSaveDefaultCompany() {
+    setSavingDefault(true)
+    const { error } = await supabase
+      .from('profiles')
+      .update({ default_company_id: companyFilter === 'all' ? null : companyFilter })
+      .eq('id', user.id)
+    setSavingDefault(false)
+    if (!error) {
+      await refreshProfile()
+      setDefaultSaved(true)
+      setTimeout(() => setDefaultSaved(false), 2500)
+    }
   }
 
   useEffect(() => {
@@ -155,7 +173,14 @@ export default function SupervisorDashboard() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold text-ink">Laporan &amp; Analitik</h1>
-          <p className="text-sm text-ink-light">Ringkasan kinerja penanganan gangguan seluruh perusahaan</p>
+          <p className="text-sm text-ink-light">
+            Ringkasan kinerja penanganan gangguan seluruh perusahaan · Default Anda:{' '}
+            <span className="font-medium text-ink">
+              {profile?.default_company_id
+                ? companies.find((c) => c.id === profile.default_company_id)?.name || 'Semua Perusahaan'
+                : 'Semua Perusahaan'}
+            </span>
+          </p>
         </div>
         <button onClick={exportCsv} className="btn-secondary">⬇ Ekspor CSV</button>
       </div>
@@ -188,6 +213,15 @@ export default function SupervisorDashboard() {
           <option value="all">Semua Perusahaan</option>
           {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
+        <button
+          type="button"
+          onClick={handleSaveDefaultCompany}
+          disabled={savingDefault}
+          className="btn-ghost text-xs"
+          title="Jadikan perusahaan yang sedang dipilih sebagai tampilan default Anda setiap kali membuka menu ini"
+        >
+          {savingDefault ? 'Menyimpan...' : defaultSaved ? 'Tersimpan ✓' : 'Jadikan Default'}
+        </button>
         <select className="input sm:max-w-xs" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
           <option value="all">Semua Kategori</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
