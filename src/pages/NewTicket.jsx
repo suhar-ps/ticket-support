@@ -5,12 +5,14 @@ import { useAuth } from '../context/AuthContext'
 import { ASSET_TYPES, PRIORITIES } from '../data/constants'
 
 export default function NewTicket() {
-  const { user } = useAuth()
+  const { user, profile, refreshProfile } = useAuth()
   const navigate = useNavigate()
   const [categories, setCategories] = useState([])
   const [companies, setCompanies] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [savingDefault, setSavingDefault] = useState(false)
+  const [defaultSaved, setDefaultSaved] = useState(false)
 
   const [form, setForm] = useState({
     title: '',
@@ -39,9 +41,37 @@ export default function NewTicket() {
       .order('name')
       .then(({ data }) => {
         setCompanies(data || [])
-        if (data?.length) setForm((f) => ({ ...f, companyId: data[0].id }))
+        if (data?.length) {
+          // Utamakan perusahaan default yang sudah disimpan pengguna
+          // (kalau ada dan masih valid); kalau tidak, baru fallback ke
+          // perusahaan pertama secara alfabetis. Dibaca sekali saat
+          // halaman dibuka — profil sudah pasti termuat di titik ini
+          // (dijamin oleh Layout), jadi tidak perlu jadi dependency efek
+          // ini (kalau iya, kategori & daftar perusahaan akan ter-fetch
+          // ulang dan mereset pilihan kategori setiap kali tombol
+          // "Jadikan Default" ditekan).
+          const preferred = profile?.default_company_id
+          const isValid = preferred && data.some((c) => c.id === preferred)
+          setForm((f) => ({ ...f, companyId: isValid ? preferred : data[0].id }))
+        }
       })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function handleSaveDefaultCompany() {
+    if (!form.companyId) return
+    setSavingDefault(true)
+    const { error: saveError } = await supabase
+      .from('profiles')
+      .update({ default_company_id: form.companyId })
+      .eq('id', user.id)
+    setSavingDefault(false)
+    if (!saveError) {
+      await refreshProfile()
+      setDefaultSaved(true)
+      setTimeout(() => setDefaultSaved(false), 2500)
+    }
+  }
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -99,7 +129,18 @@ export default function NewTicket() {
         </div>
 
         <div>
-          <label className="label" htmlFor="company">Perusahaan</label>
+          <div className="flex items-center justify-between">
+            <label className="label" htmlFor="company">Perusahaan</label>
+            <button
+              type="button"
+              onClick={handleSaveDefaultCompany}
+              disabled={savingDefault || !form.companyId}
+              className="mb-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 disabled:opacity-40"
+              title="Jadikan perusahaan yang dipilih sebagai default setiap kali membuat tiket baru"
+            >
+              {savingDefault ? 'Menyimpan...' : defaultSaved ? 'Tersimpan ✓' : 'Jadikan Default'}
+            </button>
+          </div>
           <select
             id="company"
             className="input"
