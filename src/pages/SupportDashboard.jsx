@@ -108,7 +108,7 @@ export default function SupportDashboard() {
       ) : (
         <div className="space-y-3">
           {filtered.map((t) => (
-            <TicketCard key={t.id} ticket={t} showRequester showCompany />
+            <TicketCard key={t.id} ticket={t} showRequester showCompany linkState={{ origin: 'queue' }} />
           ))}
         </div>
       )}

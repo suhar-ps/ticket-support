@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import StatusBadge from '../components/StatusBadge'
@@ -11,6 +11,7 @@ export default function TicketDetail() {
   const { id } = useParams()
   const { user, profile } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [ticket, setTicket] = useState(null)
   const [updates, setUpdates] = useState([])
@@ -23,8 +24,19 @@ export default function TicketDetail() {
   const [assigneeDraft, setAssigneeDraft] = useState('')
   const [note, setNote] = useState('')
 
-  const canManageTicket = ['support', 'supervisor', 'superadmin'].includes(profile?.role)
+  const isStaffRole = ['support', 'supervisor', 'superadmin'].includes(profile?.role)
+  const isSupervisorLike = ['supervisor', 'superadmin'].includes(profile?.role)
   const isOwner = ticket?.created_by === user?.id
+  const cameFromQueue = location.state?.origin === 'queue'
+
+  // Supervisor/Super Admin yang membuka TIKET BUATANNYA SENDIRI lewat
+  // menu "Tiket Saya" cukup diperlakukan seperti Pelapor biasa — cukup
+  // kotak "Informasi Tambahan", bukan form pengelolaan penuh (Status,
+  // Ditugaskan ke, Catatan Perbaikan). Kalau tiket yang sama dibuka
+  // lewat Antrian Support, form pengelolaan penuh tetap ditampilkan
+  // karena mereka sedang bertindak sebagai staf yang menangani antrian.
+  const showManagementForm = isStaffRole && !(isSupervisorLike && isOwner && !cameFromQueue)
+  const showCommentBox = isOwner && !showManagementForm
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -59,14 +71,14 @@ export default function TicketDetail() {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    if (canManageTicket) {
+    if (showManagementForm) {
       supabase
         .from('profiles')
         .select('id, full_name')
         .in('role', ['support', 'supervisor', 'superadmin'])
         .then(({ data }) => setSupportAgents(data || []))
     }
-  }, [canManageTicket])
+  }, [showManagementForm])
 
   async function handleSupportSave(e) {
     e.preventDefault()
@@ -219,7 +231,7 @@ export default function TicketDetail() {
         </div>
 
         {/* Aksi perbaikan (Support, Supervisor, Super Admin) */}
-        {canManageTicket && (
+        {showManagementForm && (
           <form onSubmit={handleSupportSave} className="border-t border-gray-100 bg-brand-50/40 p-6">
             <h2 className="mb-3 font-display text-sm font-bold text-ink">Perbarui Tiket</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -258,8 +270,10 @@ export default function TicketDetail() {
           </form>
         )}
 
-        {/* Owner comment box (view-only role for status) */}
-        {!canManageTicket && isOwner && profile?.role === 'user' && (
+        {/* Kotak informasi tambahan untuk pemilik tiket (Pelapor biasa,
+            atau Supervisor/Super Admin yang membuka tiket buatannya
+            sendiri lewat "Tiket Saya", bukan dari Antrian Support) */}
+        {showCommentBox && (
           <form onSubmit={handleAddComment} className="border-t border-gray-100 p-6">
             <label className="label">Tambahkan Informasi Tambahan</label>
             <textarea

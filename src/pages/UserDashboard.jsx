@@ -82,7 +82,9 @@ export default function UserDashboard() {
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map((t) => <TicketCard key={t.id} ticket={t} />)}
+          {filtered.map((t) => (
+            <TicketCard key={t.id} ticket={t} linkState={{ origin: 'my-tickets' }} />
+          ))}
         </div>
       )}
     </div>

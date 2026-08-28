@@ -3,10 +3,11 @@ import StatusBadge from './StatusBadge'
 import PriorityBadge from './PriorityBadge'
 import { formatDateTime } from '../data/constants'
 
-export default function TicketCard({ ticket, showRequester = false, showCompany = false }) {
+export default function TicketCard({ ticket, showRequester = false, showCompany = false, linkState }) {
   return (
     <Link
       to={`/tickets/${ticket.id}`}
+      state={linkState}
       className="card block overflow-hidden transition-shadow hover:shadow-md"
     >
       <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start sm:justify-between">
