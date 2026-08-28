@@ -5,7 +5,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn(
-    '[TiketPro] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY belum diatur. ' +
+    '[FixHub] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY belum diatur. ' +
     'Salin .env.example menjadi .env dan isi dengan kredensial project Supabase Anda.'
   )
 }

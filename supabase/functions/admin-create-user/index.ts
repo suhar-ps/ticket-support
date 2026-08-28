@@ -12,7 +12,7 @@
 // 1) Baca token JWT pemanggil dari header Authorization.
 // 2) Verifikasi token itu & ambil user id-nya (pakai anon client).
 // 3) Cek role user itu di tabel profiles lewat client SERVICE ROLE
-//    (bypass RLS) — hanya lanjut jika role = 'supervisor'.
+//    (bypass RLS) — hanya lanjut jika role = 'superadmin'.
 // 4) Baru buat user baru lewat Admin API.
 //
 // Deploy dengan Supabase CLI:
@@ -74,15 +74,15 @@ Deno.serve(async (req) => {
       .eq('id', callerData.user.id)
       .single()
 
-    if (profileError || callerProfile?.role !== 'supervisor') {
-      return jsonResponse({ error: 'Hanya Supervisor yang dapat menambah pengguna.' }, 403)
+    if (profileError || callerProfile?.role !== 'superadmin') {
+      return jsonResponse({ error: 'Hanya Super Admin yang dapat menambah pengguna.' }, 403)
     }
 
     const body = await req.json().catch(() => ({}))
     const email = (body.email || '').trim()
     const password = body.password || ''
     const fullName = (body.full_name || '').trim()
-    const role = ['user', 'support', 'supervisor'].includes(body.role) ? body.role : 'user'
+    const role = ['user', 'support', 'supervisor', 'superadmin'].includes(body.role) ? body.role : 'user'
 
     if (!email || !password || !fullName) {
       return jsonResponse({ error: 'Email, kata sandi, dan nama lengkap wajib diisi.' }, 400)

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
@@ -16,13 +17,41 @@ const STATUS_COLORS = {
   closed: '#9CA3AF',
 }
 
+// Format Date -> "YYYY-MM-DD" memakai komponen tanggal LOKAL (bukan
+// toISOString, yang mengonversi ke UTC dan bisa menggeser tanggal
+// mundur/maju tergantung zona waktu perangkat, mis. WIB).
+function toDateInputValue(d) {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function defaultDateRange() {
+  const now = new Date()
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+  return { from: toDateInputValue(firstOfMonth), to: toDateInputValue(now) }
+}
+
 export default function SupervisorDashboard() {
+  const navigate = useNavigate()
   const [tickets, setTickets] = useState([])
   const [companies, setCompanies] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
   const [companyFilter, setCompanyFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [{ from: dateFrom, to: dateTo }, setDateRange] = useState(defaultDateRange)
+
+  function setDateFrom(value) {
+    setDateRange((r) => ({ ...r, from: value }))
+  }
+  function setDateTo(value) {
+    setDateRange((r) => ({ ...r, to: value }))
+  }
+  function resetDateRange() {
+    setDateRange(defaultDateRange())
+  }
 
   useEffect(() => {
     async function load() {
@@ -44,12 +73,20 @@ export default function SupervisorDashboard() {
   }, [])
 
   const filtered = useMemo(() => {
+    const rangeStart = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null
+    const rangeEnd = dateTo ? new Date(`${dateTo}T23:59:59.999`) : null
+
     return tickets.filter((t) => {
       if (companyFilter !== 'all' && t.company_id !== companyFilter) return false
       if (categoryFilter !== 'all' && t.category_id !== categoryFilter) return false
+
+      const createdAt = new Date(t.created_at)
+      if (rangeStart && createdAt < rangeStart) return false
+      if (rangeEnd && createdAt > rangeEnd) return false
+
       return true
     })
-  }, [tickets, companyFilter, categoryFilter])
+  }, [tickets, companyFilter, categoryFilter, dateFrom, dateTo])
 
   const stats = useMemo(() => {
     const total = filtered.length
@@ -123,7 +160,30 @@ export default function SupervisorDashboard() {
         <button onClick={exportCsv} className="btn-secondary">⬇ Ekspor CSV</button>
       </div>
 
-      <div className="mb-6 flex flex-wrap gap-3">
+      <div className="mb-6 flex flex-wrap items-end gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-ink-light">Dari</span>
+          <input
+            type="date"
+            className="input w-auto"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-ink-light">Sampai</span>
+          <input
+            type="date"
+            className="input w-auto"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </div>
+        <button type="button" onClick={resetDateRange} className="btn-ghost text-xs">
+          Bulan Ini
+        </button>
         <select className="input sm:max-w-xs" value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
           <option value="all">Semua Perusahaan</option>
           {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -192,6 +252,7 @@ export default function SupervisorDashboard() {
       <div className="card overflow-hidden">
         <div className="border-b border-gray-100 p-5">
           <h2 className="font-display text-sm font-bold text-ink">Detail Tiket ({filtered.length})</h2>
+          <p className="text-xs text-ink-light">Klik salah satu baris untuk melihat detail masalah & riwayat tanggapan.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -203,17 +264,26 @@ export default function SupervisorDashboard() {
                 <th className="px-5 py-3 font-semibold">Prioritas</th>
                 <th className="px-5 py-3 font-semibold">Status</th>
                 <th className="px-5 py-3 font-semibold">Dibuat</th>
+                <th className="px-5 py-3 font-semibold"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((t) => (
-                <tr key={t.id} className="hover:bg-brand-50/30">
+                <tr
+                  key={t.id}
+                  onClick={() => navigate(`/tickets/${t.id}`)}
+                  className="cursor-pointer hover:bg-brand-50/40"
+                  title="Klik untuk lihat detail tiket"
+                >
                   <td className="whitespace-nowrap px-5 py-3 font-mono text-xs text-brand-600">{t.ticket_number}</td>
                   <td className="px-5 py-3 text-ink">{t.title}</td>
                   <td className="px-5 py-3 text-ink-light">{t.companies?.name}</td>
                   <td className="px-5 py-3"><PriorityBadge priority={t.priority} /></td>
                   <td className="px-5 py-3"><StatusBadge status={t.status} /></td>
                   <td className="whitespace-nowrap px-5 py-3 text-ink-light">{formatDateTime(t.created_at)}</td>
+                  <td className="whitespace-nowrap px-5 py-3 text-right text-xs font-medium text-brand-600">
+                    Lihat detail →
+                  </td>
                 </tr>
               ))}
             </tbody>

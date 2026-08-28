@@ -9,7 +9,7 @@
 //
 // Alur keamanan sama seperti admin-create-user: verifikasi token
 // pemanggil, cek role-nya di tabel profiles lewat client service role
-// (bypass RLS), baru lanjut kalau memang 'supervisor'.
+// (bypass RLS), baru lanjut kalau memang 'superadmin'.
 //
 // Deploy dengan Supabase CLI:
 //   supabase functions deploy admin-set-password
@@ -67,9 +67,9 @@ Deno.serve(async (req) => {
       .eq('id', callerData.user.id)
       .single()
 
-    if (profileError || callerProfile?.role !== 'supervisor') {
+    if (profileError || callerProfile?.role !== 'superadmin') {
       return jsonResponse(
-        { error: 'Hanya Supervisor yang dapat mengatur ulang kata sandi pengguna.' },
+        { error: 'Hanya Super Admin yang dapat mengatur ulang kata sandi pengguna.' },
         403
       )
     }

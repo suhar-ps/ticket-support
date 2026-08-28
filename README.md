@@ -1,7 +1,8 @@
-# TiketPro — Sistem Ticketing Support Perusahaan
+# FixHub — Sistem Ticketing Support Perusahaan
 
 Aplikasi web untuk pelaporan dan pelacakan gangguan **aset komputer, kendaraan operasional,
-dan fasilitas gedung**, dengan tiga peran: **Pelapor (User)**, **Tim Support**, dan **Supervisor**.
+dan fasilitas gedung**, dengan empat peran: **Pelapor (User)**, **Tim Support**,
+**Supervisor**, dan **Super Admin**.
 
 Stack: **React + Vite + Tailwind CSS** (frontend, di-hosting di **Netlify**) dan
 **Supabase** (database PostgreSQL + Autentikasi + Row Level Security).
@@ -19,7 +20,8 @@ Stack: **React + Vite + Tailwind CSS** (frontend, di-hosting di **Netlify**) dan
 |---|---|
 | **Pelapor (User)** | Membuat tiket baru, memilih perusahaan & kategori masalah, melihat status tiket miliknya, menambahkan catatan tambahan |
 | **Tim Support** | Melihat semua tiket dari semua perusahaan, filter & pencarian, mengubah status, menugaskan ke diri sendiri/rekan, mencatat riwayat perbaikan |
-| **Supervisor** | Dashboard laporan (grafik per status/kategori/perusahaan, rata-rata waktu penyelesaian), tabel detail, ekspor CSV, dan Administrasi Pengguna (tambah, edit, ganti password, hapus, ubah role) |
+| **Supervisor** | Semua kemampuan Support (bisa ikut melaporkan tiket baru & melakukan perbaikan) **ditambah** Dashboard Laporan & Analitik dengan filter periode tanggal (grafik per status/kategori/perusahaan, rata-rata waktu penyelesaian), tabel detail yang bisa diklik untuk lihat isi & riwayat tanggapan tiket, dan ekspor CSV |
+| **Super Admin** | Semua kemampuan Supervisor **ditambah** Administrasi Pengguna (tambah, edit, ganti password, hapus, ubah role) — satu-satunya peran yang bisa mengelola akun pengguna lain |
 
 **Perusahaan** yang sudah tersedia: PT SAS International, PT Petrindo Semesta, PT Sarana
 Instrument, PT Omni Composite Solutions, PT Mika Tunggal, PT Agora.
@@ -32,7 +34,9 @@ Maintenance, Housekeeping & Environment, Security & Access Control.
 ## 2. Struktur Proyek
 
 ```
-ticketing-app/
+fixhub-app/
+├── public/
+│   └── logo.png                      ← Logo aplikasi (favicon + header + login)
 ├── supabase/
 │   ├── schema.sql                    ← Jalankan sekali (dan ulang tiap update) di SQL Editor
 │   └── functions/
@@ -143,23 +147,25 @@ variables**) sebelum atau setelah deploy, lalu **trigger deploy ulang** agar ter
 ## 6. Alur Penggunaan Cepat
 
 Pendaftaran publik (`/register`) selalu membuat akun dengan role **Pelapor** — tidak ada
-pilihan role di form itu. Untuk mendapatkan akun Support/Supervisor:
+pilihan role di form itu. Untuk mendapatkan akun Support/Supervisor/Super Admin:
 
 1. **Daftar** akun pertama lewat halaman Daftar (otomatis jadi Pelapor).
-2. **Angkat akun itu jadi Supervisor** satu kali lewat SQL Editor (lihat Bagian 7) — ini
+2. **Angkat akun itu jadi Super Admin** satu kali lewat SQL Editor (lihat Bagian 7) — ini
    satu-satunya langkah manual yang dibutuhkan, untuk "membuka pintu" pertama kali.
-3. **Login sebagai Supervisor** → buka menu **Administrasi Pengguna** → klik
-   **"+ Tambah Pengguna"** untuk membuat akun Support (dan Supervisor lain bila perlu)
-   langsung dari aplikasi, lengkap dengan password awal.
-4. **Login sebagai Support** → buat tiket lewat akun Pelapor mana pun → tiket langsung
-   muncul di **Antrian Support** → ubah status & tambahkan catatan perbaikan.
-5. **Login sebagai Supervisor** lagi → lihat grafik dan tabel laporan di menu
-   **Laporan & Analitik**.
+3. **Login sebagai Super Admin** → buka menu **Administrasi Pengguna** → klik
+   **"+ Tambah Pengguna"** untuk membuat akun Support/Supervisor/Super Admin lain langsung
+   dari aplikasi, lengkap dengan password awal.
+4. **Login sebagai Support** (atau Supervisor/Super Admin) → buat tiket lewat akun Pelapor
+   mana pun → tiket langsung muncul di **Antrian Support** → ubah status & tambahkan
+   catatan perbaikan.
+5. **Login sebagai Supervisor** (atau Super Admin) → lihat grafik dan tabel laporan di menu
+   **Laporan & Analitik**. Supervisor dan Super Admin juga punya akses ke **Buat Tiket** dan
+   **Antrian Support**, jadi bisa ikut melaporkan masalah maupun menanganinya sendiri.
 
 **Lupa kata sandi?** Ada dua jalur:
 - **Self-service**: klik "Lupa kata sandi?" di halaman Masuk → masukkan email → klik tautan
   yang dikirim ke email tersebut → atur kata sandi baru.
-- **Dibantu Supervisor**: Supervisor buka **Administrasi Pengguna** → klik **"Ganti
+- **Dibantu Super Admin**: Super Admin buka **Administrasi Pengguna** → klik **"Ganti
   Password"** di baris pengguna terkait → masukkan kata sandi baru untuknya langsung
   (berguna kalau pengguna tidak punya akses ke emailnya).
 
@@ -168,14 +174,14 @@ pilihan role di form itu. Untuk mendapatkan akun Support/Supervisor:
 ## 7. Cara Kerja Role & Cara Mengubahnya
 
 Role pengguna disimpan di dua tempat yang saling sinkron: kolom `profiles.role` (dibaca
-real-time untuk visibilitas tiket, sehingga tiket langsung terlihat oleh Support tanpa
-perlu logout/login) dan klaim JWT `app_metadata` (dipakai khusus untuk kebijakan tabel
-`profiles` itu sendiri, demi menghindari rekursi RLS).
+real-time untuk visibilitas & pengerjaan tiket, sehingga tiket langsung terlihat/bisa
+dikerjakan tanpa perlu logout/login) dan klaim JWT `app_metadata` (dipakai khusus untuk
+kebijakan tabel `profiles` itu sendiri, demi menghindari rekursi RLS).
 
-**Sehari-hari — lewat aplikasi, sebagai Supervisor, di menu Administrasi Pengguna:**
+**Sehari-hari — lewat aplikasi, sebagai Super Admin, di menu Administrasi Pengguna:**
 - **Tambah**: tombol "+ Tambah Pengguna" (butuh Edge Function `admin-create-user` sudah
   ter-deploy, lihat Bagian 3).
-- **Ubah role**: dropdown role di tiap baris.
+- **Ubah role**: dropdown role di tiap baris (Pelapor / Support / Supervisor / Super Admin).
 - **Edit nama**: tombol "Edit" di tiap baris.
 - **Ganti password**: tombol "Ganti Password" di tiap baris (butuh Edge Function
   `admin-set-password` sudah ter-deploy, lihat Bagian 3) — berguna untuk pengguna yang lupa
@@ -184,11 +190,14 @@ perlu logout/login) dan klaim JWT `app_metadata` (dipakai khusus untuk kebijakan
   masih memiliki riwayat tiket (sebagai pelapor atau petugas yang ditugaskan), supaya
   riwayat tiket tidak pernah hilang tanpa sengaja.
 
-**Bootstrap Supervisor pertama** (belum ada Supervisor sama sekali, jadi belum ada yang
+Halaman Administrasi Pengguna **hanya bisa diakses oleh Super Admin** — Supervisor tidak
+lagi punya akses ke menu ini (dipindahkan sepenuhnya ke Super Admin).
+
+**Bootstrap Super Admin pertama** (belum ada Super Admin sama sekali, jadi belum ada yang
 bisa membuka halaman Administrasi Pengguna): jalankan sekali lewat **SQL Editor**:
 
 ```sql
-select public.set_user_role('uuid-user-yang-dituju', 'supervisor');
+select public.set_user_role('uuid-user-yang-dituju', 'superadmin');
 ```
 
 Cara mendapatkan UUID: buka **Authentication → Users** di Supabase Dashboard, atau jalankan

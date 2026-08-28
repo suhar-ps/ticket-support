@@ -1,5 +1,5 @@
 -- =====================================================================
--- TiketPro — Skema Database (Supabase / PostgreSQL)
+-- FixHub — Skema Database (Supabase / PostgreSQL)
 -- Jalankan SELURUH file ini di Supabase Dashboard > SQL Editor > New Query
 -- Aman dijalankan berkali-kali (idempotent). Dibungkus dalam satu
 -- transaksi (begin...commit) agar TIDAK bisa tersimpan sebagian saja
@@ -69,7 +69,7 @@ on conflict (name) do nothing;
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null,
-  role user_role not null default 'user',
+  role text not null default 'user',
   company_id uuid references companies(id),
   phone text,
   created_at timestamptz default now()
@@ -78,6 +78,51 @@ create table if not exists profiles (
 -- Pastikan RLS tidak "dipaksakan" ke pemilik tabel (default Postgres
 -- memang begini, baris ini hanya menjamin eksplisit).
 alter table profiles no force row level security;
+
+-- ---------------------------------------------------------------------
+-- MIGRASI: kolom profiles.role dari enum ke text + CHECK constraint.
+--
+-- Kenapa: menambah nilai baru ke enum Postgres (ALTER TYPE ... ADD
+-- VALUE) tidak boleh dipakai dalam transaksi yang sama saat
+-- ditambahkan — jadi merepotkan setiap kali mau menambah role baru
+-- (mis. menambahkan 'superadmin' di update ini). Dengan text + CHECK
+-- constraint, menambah role lain nanti tinggal ubah daftar di CHECK
+-- constraint-nya, aman dijalankan dalam satu transaksi seperti file
+-- ini, tanpa pembatasan tersebut.
+--
+-- Blok ini aman dijalankan berkali-kali, baik di database yang benar-
+-- benar baru maupun yang sebelumnya masih memakai kolom bertipe enum.
+-- ---------------------------------------------------------------------
+
+-- Lepas dulu fungsi-fungsi yang tanda tangannya memakai tipe user_role,
+-- supaya tipe itu bisa dibersihkan setelah kolom dimigrasikan.
+--
+-- CATATAN: current_user_role() SENGAJA TIDAK di-drop di sini — beberapa
+-- kebijakan RLS (dibuat oleh versi skrip sebelumnya) masih bergantung
+-- padanya, dan baru dilepas belakangan di bagian ROW LEVEL SECURITY di
+-- bawah (urutan: kebijakan yang bergantung dihapus dulu, baru fungsinya).
+-- Men-drop-nya di sini akan gagal dengan error "cannot drop function
+-- ... because other objects depend on it" pada database yang sudah
+-- pernah menjalankan skrip versi sebelumnya.
+drop function if exists public.set_user_role(uuid, user_role);
+drop function if exists public.list_users_for_admin();
+
+alter table profiles alter column role drop default;
+alter table profiles alter column role type text using role::text;
+alter table profiles alter column role set default 'user';
+
+alter table profiles drop constraint if exists profiles_role_check;
+alter table profiles add constraint profiles_role_check
+  check (role in ('user', 'support', 'supervisor', 'superadmin'));
+
+-- Enum lama sudah tidak dipakai kolom manapun — bersihkan kalau bisa,
+-- tapi jangan sampai gagal kalau ternyata masih ada objek lain yang
+-- memakainya.
+do $$ begin
+  drop type if exists user_role;
+exception when dependent_objects_still_exist then
+  null;
+end $$;
 
 -- ---------------------------------------------------------------------
 -- TICKETS
@@ -191,7 +236,7 @@ grant execute on function public.jwt_role() to authenticated, anon;
 -- yang dipakai supaya tiket buatan pelapor langsung terlihat oleh
 -- Support begitu role Support diaktifkan, tanpa harus re-login.
 create or replace function public.current_user_role()
-returns user_role
+returns text
 language sql
 security definer
 set search_path = public
@@ -220,7 +265,7 @@ drop policy if exists "read own profile" on profiles;
 create policy "read own profile" on profiles for select using (auth.uid() = id);
 
 create policy "staff read all profiles" on profiles for select using (
-  public.jwt_role() in ('support', 'supervisor')
+  public.jwt_role() in ('support', 'supervisor', 'superadmin')
 );
 
 drop policy if exists "insert own profile" on profiles;
@@ -237,24 +282,28 @@ drop policy if exists "user read own ticket" on tickets;
 create policy "user read own ticket" on tickets for select using (created_by = auth.uid());
 
 create policy "staff read all tickets" on tickets for select using (
-  public.current_user_role() in ('support', 'supervisor')
+  public.current_user_role() in ('support', 'supervisor', 'superadmin')
 );
 
-create policy "support update tickets" on tickets for update using (
-  public.current_user_role() = 'support'
+-- Support, Supervisor, dan Super Admin sama-sama bisa mengerjakan &
+-- mengubah status tiket ("melakukan perbaikan"), bukan hanya Support.
+drop policy if exists "support update tickets" on tickets;
+drop policy if exists "staff update tickets" on tickets;
+create policy "staff update tickets" on tickets for update using (
+  public.current_user_role() in ('support', 'supervisor', 'superadmin')
 );
 
 -- Ticket updates (log)
 create policy "insert ticket update" on ticket_updates for insert with check (
   user_id = auth.uid() and (
     exists (select 1 from tickets t where t.id = ticket_id and t.created_by = auth.uid())
-    or public.current_user_role() in ('support', 'supervisor')
+    or public.current_user_role() in ('support', 'supervisor', 'superadmin')
   )
 );
 
 create policy "read ticket updates" on ticket_updates for select using (
   exists (select 1 from tickets t where t.id = ticket_id and t.created_by = auth.uid())
-  or public.current_user_role() in ('support', 'supervisor')
+  or public.current_user_role() in ('support', 'supervisor', 'superadmin')
 );
 
 -- ---------------------------------------------------------------------
@@ -277,7 +326,7 @@ begin
   values (
     new.id,
     coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
-    the_role::user_role,
+    the_role,
     nullif(new.raw_user_meta_data ->> 'company_id', '')::uuid
   )
   on conflict (id) do nothing;
@@ -302,35 +351,39 @@ create trigger on_auth_user_created
 -- Fungsi ini diberi izin EXECUTE ke role "authenticated" (supaya bisa
 -- dipanggil dari halaman Administrasi Pengguna di aplikasi), TAPI di
 -- dalam fungsi ini sendiri ada pengecekan: hanya pemanggil yang role-nya
--- 'supervisor' (dicek real-time dari database, bukan dari JWT) yang
+-- 'superadmin' (dicek real-time dari database, bukan dari JWT) yang
 -- benar-benar diizinkan melakukan perubahan. User lain yang mencoba
 -- memanggil fungsi ini akan mendapat error.
 -- ---------------------------------------------------------------------
-create or replace function public.set_user_role(target_user_id uuid, new_role user_role)
+create or replace function public.set_user_role(target_user_id uuid, new_role text)
 returns void
 language plpgsql
 security definer
 set search_path = public
 as $$
 begin
-  if public.current_user_role() <> 'supervisor' then
-    raise exception 'Hanya Supervisor yang dapat mengubah role pengguna.';
+  if public.current_user_role() <> 'superadmin' then
+    raise exception 'Hanya Super Admin yang dapat mengubah role pengguna.';
+  end if;
+
+  if new_role not in ('user', 'support', 'supervisor', 'superadmin') then
+    raise exception 'Role tidak valid: %', new_role;
   end if;
 
   update public.profiles set role = new_role where id = target_user_id;
   update auth.users
-  set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', new_role::text)
+  set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', new_role)
   where id = target_user_id;
 end;
 $$;
 
-grant execute on function public.set_user_role(uuid, user_role) to authenticated;
+grant execute on function public.set_user_role(uuid, text) to authenticated;
 
 -- ---------------------------------------------------------------------
 -- FUNGSI ADMIN: daftar seluruh pengguna (termasuk email, yang normalnya
 -- tidak boleh dibaca langsung oleh client) untuk halaman Administrasi
 -- Pengguna. Sama seperti di atas, dilindungi pengecekan role di dalam
--- fungsi — hanya Supervisor yang datanya benar-benar dikembalikan.
+-- fungsi — hanya Super Admin yang datanya benar-benar dikembalikan.
 --
 -- CATATAN: kolom auth.users.email bertipe "character varying", BUKAN
 -- "text" — karena itu di-cast eksplisit (::text) di query. Tanpa cast
@@ -342,7 +395,7 @@ returns table (
   id uuid,
   email text,
   full_name text,
-  role user_role,
+  role text,
   created_at timestamptz
 )
 language plpgsql
@@ -350,8 +403,8 @@ security definer
 set search_path = public
 as $$
 begin
-  if public.current_user_role() <> 'supervisor' then
-    raise exception 'Hanya Supervisor yang dapat melihat daftar pengguna.';
+  if public.current_user_role() <> 'superadmin' then
+    raise exception 'Hanya Super Admin yang dapat melihat daftar pengguna.';
   end if;
 
   return query
@@ -374,8 +427,8 @@ security definer
 set search_path = public
 as $$
 begin
-  if public.current_user_role() <> 'supervisor' then
-    raise exception 'Hanya Supervisor yang dapat mengedit pengguna.';
+  if public.current_user_role() <> 'superadmin' then
+    raise exception 'Hanya Super Admin yang dapat mengedit pengguna.';
   end if;
 
   if new_full_name is null or trim(new_full_name) = '' then
@@ -390,7 +443,7 @@ grant execute on function public.admin_update_profile(uuid, text) to authenticat
 
 -- ---------------------------------------------------------------------
 -- FUNGSI ADMIN: hapus akun pengguna sepenuhnya (auth.users + profiles,
--- profiles ikut terhapus lewat ON DELETE CASCADE). Supervisor tidak
+-- profiles ikut terhapus lewat ON DELETE CASCADE). Super Admin tidak
 -- dapat menghapus akunnya sendiri. Jika pengguna tersebut masih punya
 -- riwayat tiket (sebagai pelapor atau petugas yang ditugaskan), hapus
 -- akan ditolak dengan pesan yang jelas alih-alih error mentah dari
@@ -403,8 +456,8 @@ security definer
 set search_path = public
 as $$
 begin
-  if public.current_user_role() <> 'supervisor' then
-    raise exception 'Hanya Supervisor yang dapat menghapus pengguna.';
+  if public.current_user_role() <> 'superadmin' then
+    raise exception 'Hanya Super Admin yang dapat menghapus pengguna.';
   end if;
 
   if target_user_id = auth.uid() then
@@ -440,7 +493,7 @@ where p.id is null
 on conflict (id) do nothing;
 
 update auth.users u
-set raw_app_meta_data = coalesce(u.raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', p.role::text)
+set raw_app_meta_data = coalesce(u.raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', p.role)
 from public.profiles p
 where p.id = u.id;
 
@@ -453,17 +506,18 @@ commit;
 -- 2) (Opsional, untuk testing cepat) matikan "Confirm email" di
 --    Authentication > Providers > Email agar user langsung bisa login
 --    tanpa verifikasi email dulu.
--- 3) Untuk mengangkat akun pertama menjadi Supervisor (supaya bisa
+-- 3) Untuk mengangkat akun pertama menjadi Super Admin (supaya bisa
 --    membuka halaman Administrasi Pengguna di aplikasi), jalankan satu
 --    kali lewat SQL Editor:
---      select public.set_user_role('<uuid user>', 'supervisor');
---    Setelah itu, Supervisor bisa mengubah role pengguna lain langsung
---    dari halaman Administrasi Pengguna di aplikasi.
+--      select public.set_user_role('<uuid user>', 'superadmin');
+--    Setelah itu, Super Admin bisa mengubah role pengguna lain langsung
+--    dari halaman Administrasi Pengguna di aplikasi — termasuk
+--    menjadikan pengguna lain Super Admin juga bila perlu.
 -- 4) PENTING: perubahan role pada TABEL tickets/ticket_updates langsung
 --    berlaku real-time (tidak perlu logout/login). Tapi kemampuan
---    Support/Supervisor untuk melihat DAFTAR profil pengguna lain (mis.
---    dropdown "Ditugaskan ke") baru berlaku setelah pengguna yang
---    bersangkutan logout lalu login lagi (atau token-nya di-refresh
---    otomatis, biasanya < 1 jam).
+--    Support/Supervisor/Super Admin untuk melihat DAFTAR profil
+--    pengguna lain (mis. dropdown "Ditugaskan ke") baru berlaku setelah
+--    pengguna yang bersangkutan logout lalu login lagi (atau token-nya
+--    di-refresh otomatis, biasanya < 1 jam).
 -- 5) File ini AMAN dijalankan ulang berkali-kali (idempotent).
 -- =====================================================================

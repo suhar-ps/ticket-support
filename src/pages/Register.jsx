@@ -91,7 +91,7 @@ export default function Register() {
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
           <h1 className="font-display text-2xl font-bold text-ink">Buat Akun Baru</h1>
-          <p className="mt-1 text-sm text-ink-light">Daftarkan diri Anda ke TiketPro</p>
+          <p className="mt-1 text-sm text-ink-light">Daftarkan diri Anda ke FixHub</p>
         </div>
 
         <form onSubmit={handleSubmit} className="card space-y-4 p-6">

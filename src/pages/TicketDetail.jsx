@@ -23,7 +23,7 @@ export default function TicketDetail() {
   const [assigneeDraft, setAssigneeDraft] = useState('')
   const [note, setNote] = useState('')
 
-  const isSupport = profile?.role === 'support'
+  const canManageTicket = ['support', 'supervisor', 'superadmin'].includes(profile?.role)
   const isOwner = ticket?.created_by === user?.id
 
   const load = useCallback(async () => {
@@ -59,14 +59,14 @@ export default function TicketDetail() {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    if (isSupport) {
+    if (canManageTicket) {
       supabase
         .from('profiles')
         .select('id, full_name')
-        .eq('role', 'support')
+        .in('role', ['support', 'supervisor', 'superadmin'])
         .then(({ data }) => setSupportAgents(data || []))
     }
-  }, [isSupport])
+  }, [canManageTicket])
 
   async function handleSupportSave(e) {
     e.preventDefault()
@@ -218,10 +218,10 @@ export default function TicketDetail() {
           )}
         </div>
 
-        {/* Support actions */}
-        {isSupport && (
+        {/* Aksi perbaikan (Support, Supervisor, Super Admin) */}
+        {canManageTicket && (
           <form onSubmit={handleSupportSave} className="border-t border-gray-100 bg-brand-50/40 p-6">
-            <h2 className="mb-3 font-display text-sm font-bold text-ink">Perbarui Tiket (Tim Support)</h2>
+            <h2 className="mb-3 font-display text-sm font-bold text-ink">Perbarui Tiket</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="label">Status</label>
@@ -259,7 +259,7 @@ export default function TicketDetail() {
         )}
 
         {/* Owner comment box (view-only role for status) */}
-        {!isSupport && isOwner && profile?.role === 'user' && (
+        {!canManageTicket && isOwner && profile?.role === 'user' && (
           <form onSubmit={handleAddComment} className="border-t border-gray-100 p-6">
             <label className="label">Tambahkan Informasi Tambahan</label>
             <textarea

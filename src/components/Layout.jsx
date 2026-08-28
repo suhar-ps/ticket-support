@@ -7,9 +7,18 @@ const NAV_BY_ROLE = {
     { to: '/', label: 'Tiket Saya' },
     { to: '/tickets/new', label: 'Buat Tiket' },
   ],
-  support: [{ to: '/', label: 'Antrian Support' }],
+  support: [
+    { to: '/', label: 'Antrian Support' },
+  ],
   supervisor: [
     { to: '/', label: 'Laporan & Analitik' },
+    { to: '/tickets/new', label: 'Buat Tiket' },
+    { to: '/queue', label: 'Antrian Support' },
+  ],
+  superadmin: [
+    { to: '/', label: 'Laporan & Analitik' },
+    { to: '/tickets/new', label: 'Buat Tiket' },
+    { to: '/queue', label: 'Antrian Support' },
     { to: '/admin/users', label: 'Administrasi Pengguna' },
   ],
 }
@@ -55,11 +64,9 @@ export default function Layout({ children }) {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
           <div className="flex items-center gap-8">
             <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 font-display text-sm font-extrabold text-white">
-                T
-              </span>
+              <img src="/logo.png" alt="FixHub" className="h-8 w-8 object-contain" />
               <span className="font-display text-lg font-bold tracking-tight text-ink">
-                TiketPro
+                FixHub
               </span>
             </div>
             <nav className="hidden gap-1 sm:flex">

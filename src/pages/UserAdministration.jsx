@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { ROLE_LABELS, formatDateTime } from '../data/constants'
 
-const ROLE_ORDER = ['user', 'support', 'supervisor']
+const ROLE_ORDER = ['user', 'support', 'supervisor', 'superadmin']
 const EMPTY_NEW_USER = { fullName: '', email: '', password: '', role: 'user' }
 
 function describeFunctionError(message) {
@@ -285,7 +285,7 @@ export default function UserAdministration() {
         </form>
       )}
 
-      <div className="mb-6 grid grid-cols-3 gap-3">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {ROLE_ORDER.map((r) => (
           <div key={r} className="card p-4">
             <p className="text-xs font-medium text-ink-light">{ROLE_LABELS[r]}</p>

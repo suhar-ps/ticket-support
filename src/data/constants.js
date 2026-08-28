@@ -24,6 +24,7 @@ export const ROLE_LABELS = {
   user: 'Pelapor',
   support: 'Tim Support',
   supervisor: 'Supervisor',
+  superadmin: 'Super Admin',
 }
 
 export function labelFor(list, value) {

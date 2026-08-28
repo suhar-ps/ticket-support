@@ -20,6 +20,7 @@ function HomeByRole() {
 
   if (profile.role === 'support') return <SupportDashboard />
   if (profile.role === 'supervisor') return <SupervisorDashboard />
+  if (profile.role === 'superadmin') return <SupervisorDashboard />
   return <UserDashboard />
 }
 
@@ -43,8 +44,17 @@ export default function App() {
       <Route
         path="/tickets/new"
         element={
-          <ProtectedRoute allowedRoles={['user']}>
+          <ProtectedRoute allowedRoles={['user', 'supervisor', 'superadmin']}>
             <Layout><NewTicket /></Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/queue"
+        element={
+          <ProtectedRoute allowedRoles={['support', 'supervisor', 'superadmin']}>
+            <Layout><SupportDashboard /></Layout>
           </ProtectedRoute>
         }
       />
@@ -61,7 +71,7 @@ export default function App() {
       <Route
         path="/admin/users"
         element={
-          <ProtectedRoute allowedRoles={['supervisor']}>
+          <ProtectedRoute allowedRoles={['superadmin']}>
             <Layout><UserAdministration /></Layout>
           </ProtectedRoute>
         }

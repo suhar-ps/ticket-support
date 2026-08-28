@@ -30,10 +30,8 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
-          <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 font-display text-lg font-extrabold text-white">
-            T
-          </span>
-          <h1 className="font-display text-2xl font-bold text-ink">TiketPro</h1>
+          <img src="/logo.png" alt="FixHub" className="mb-3 h-14 w-14 object-contain" />
+          <h1 className="font-display text-2xl font-bold text-ink">FixHub</h1>
           <p className="mt-1 text-sm text-ink-light">
             Sistem pelaporan &amp; pelacakan gangguan aset perusahaan
           </p>
