@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -18,6 +18,8 @@ function describeFunctionError(message) {
 export default function UserAdministration() {
   const { user } = useAuth()
   const [users, setUsers] = useState([])
+  const [companies, setCompanies] = useState([])
+  const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [listError, setListError] = useState('')
@@ -31,9 +33,11 @@ export default function UserAdministration() {
   // Aksi per baris: hanya satu baris & satu mode yang aktif sekaligus,
   // supaya tidak ada dua form terbuka bersamaan.
   const [activeId, setActiveId] = useState(null)
-  const [activeMode, setActiveMode] = useState(null) // 'edit' | 'password' | 'delete'
+  const [activeMode, setActiveMode] = useState(null) // 'edit' | 'password' | 'delete' | 'access'
   const [editValue, setEditValue] = useState('')
   const [passwordValue, setPasswordValue] = useState('')
+  const [companyIdsDraft, setCompanyIdsDraft] = useState([])
+  const [categoryIdsDraft, setCategoryIdsDraft] = useState([])
   const [rowPendingId, setRowPendingId] = useState(null)
   const [rowError, setRowError] = useState('')
   const [successId, setSuccessId] = useState(null)
@@ -41,12 +45,18 @@ export default function UserAdministration() {
   async function load() {
     setLoading(true)
     setListError('')
-    const { data, error } = await supabase.rpc('list_users_for_admin')
+    const [{ data, error }, { data: companyData }, { data: categoryData }] = await Promise.all([
+      supabase.rpc('list_users_for_admin'),
+      supabase.from('companies').select('id, name').order('name'),
+      supabase.from('categories').select('id, name').order('name'),
+    ])
     if (error) {
       setListError(error.message)
     } else {
       setUsers(data || [])
     }
+    setCompanies(companyData || [])
+    setCategories(categoryData || [])
     setLoading(false)
   }
 
@@ -75,6 +85,8 @@ export default function UserAdministration() {
     setActiveMode(null)
     setEditValue('')
     setPasswordValue('')
+    setCompanyIdsDraft([])
+    setCategoryIdsDraft([])
     setRowError('')
   }
 
@@ -206,6 +218,45 @@ export default function UserAdministration() {
     resetRowState()
   }
 
+  // ---- Kelola akses perusahaan & kategori ----
+  function startAccessEdit(u) {
+    setActiveId(u.id)
+    setActiveMode('access')
+    setCompanyIdsDraft(u.company_ids || [])
+    setCategoryIdsDraft(u.category_ids || [])
+    setRowError('')
+  }
+
+  function toggleDraftId(draft, setDraft, id) {
+    setDraft(draft.includes(id) ? draft.filter((x) => x !== id) : [...draft, id])
+  }
+
+  async function saveAccess(targetId) {
+    setRowPendingId(targetId)
+    setRowError('')
+
+    const [{ error: companiesError }, { error: categoriesError }] = await Promise.all([
+      supabase.rpc('admin_set_user_companies', { target_user_id: targetId, company_ids: companyIdsDraft }),
+      supabase.rpc('admin_set_user_categories', { target_user_id: targetId, category_ids: categoryIdsDraft }),
+    ])
+
+    setRowPendingId(null)
+
+    const err = companiesError || categoriesError
+    if (err) {
+      setRowError(err.message)
+      return
+    }
+
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === targetId ? { ...u, company_ids: companyIdsDraft, category_ids: categoryIdsDraft } : u
+      )
+    )
+    resetRowState()
+    flashSuccess(targetId)
+  }
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -334,7 +385,8 @@ export default function UserAdministration() {
                   const isActive = activeId === u.id
 
                   return (
-                    <tr key={u.id} className="hover:bg-brand-50/30">
+                    <Fragment key={u.id}>
+                    <tr className="hover:bg-brand-50/30">
                       <td className="px-5 py-3 font-medium text-ink">
                         {isActive && activeMode === 'edit' ? (
                           <input
@@ -425,6 +477,9 @@ export default function UserAdministration() {
                             <button onClick={() => startPasswordEdit(u)} className="btn-ghost !px-2.5 !py-1 text-xs">
                               Ganti Password
                             </button>
+                            <button onClick={() => startAccessEdit(u)} className="btn-ghost !px-2.5 !py-1 text-xs">
+                              Kelola Akses
+                            </button>
                             <button
                               onClick={() => startDeleteConfirm(u)}
                               disabled={isSelf}
@@ -439,6 +494,107 @@ export default function UserAdministration() {
                         )}
                       </td>
                     </tr>
+                    {isActive && activeMode === 'access' && (
+                      <tr className="bg-brand-50/30">
+                        <td colSpan={5} className="px-5 py-4">
+                          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                            <div>
+                              <div className="mb-2 flex items-center justify-between">
+                                <p className="text-xs font-semibold text-ink">Akses Perusahaan</p>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setCompanyIdsDraft(companies.map((c) => c.id))}
+                                    className="text-xs font-medium text-brand-600 hover:text-brand-700"
+                                  >
+                                    Pilih Semua
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCompanyIdsDraft([])}
+                                    className="text-xs font-medium text-ink-light hover:text-ink"
+                                  >
+                                    Kosongkan
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                                {companies.map((c) => (
+                                  <label key={c.id} className="flex items-center gap-2 text-sm text-ink">
+                                    <input
+                                      type="checkbox"
+                                      checked={companyIdsDraft.includes(c.id)}
+                                      onChange={() => toggleDraftId(companyIdsDraft, setCompanyIdsDraft, c.id)}
+                                      className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                                    />
+                                    {c.name}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="mb-2 flex items-center justify-between">
+                                <p className="text-xs font-semibold text-ink">Akses Kategori</p>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setCategoryIdsDraft(categories.map((c) => c.id))}
+                                    className="text-xs font-medium text-brand-600 hover:text-brand-700"
+                                  >
+                                    Pilih Semua
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCategoryIdsDraft([])}
+                                    className="text-xs font-medium text-ink-light hover:text-ink"
+                                  >
+                                    Kosongkan
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                                {categories.map((c) => (
+                                  <label key={c.id} className="flex items-center gap-2 text-sm text-ink">
+                                    <input
+                                      type="checkbox"
+                                      checked={categoryIdsDraft.includes(c.id)}
+                                      onChange={() => toggleDraftId(categoryIdsDraft, setCategoryIdsDraft, c.id)}
+                                      className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                                    />
+                                    {c.name}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          {(companyIdsDraft.length === 0 || categoryIdsDraft.length === 0) && (
+                            <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                              {companyIdsDraft.length === 0 && categoryIdsDraft.length === 0
+                                ? 'Tidak ada perusahaan maupun kategori terpilih — pengguna ini tidak akan melihat tiket apa pun.'
+                                : companyIdsDraft.length === 0
+                                ? 'Tidak ada perusahaan terpilih — pengguna ini tidak akan melihat tiket apa pun.'
+                                : 'Tidak ada kategori terpilih — pengguna ini tidak akan melihat tiket apa pun.'}
+                            </p>
+                          )}
+
+                          <div className="mt-4 flex justify-end gap-2">
+                            <button
+                              onClick={() => saveAccess(u.id)}
+                              disabled={isPending}
+                              className="btn-secondary !px-3 !py-1.5 text-xs"
+                            >
+                              {isPending ? 'Menyimpan...' : 'Simpan Akses'}
+                            </button>
+                            <button onClick={resetRowState} className="btn-ghost !px-3 !py-1.5 text-xs">
+                              Batal
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   )
                 })}
               </tbody>

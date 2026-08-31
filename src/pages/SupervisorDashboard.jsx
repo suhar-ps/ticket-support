@@ -5,6 +5,7 @@ import {
 } from 'recharts'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { fetchVisibleCompaniesAndCategories } from '../lib/access'
 import LoadingSpinner from '../components/LoadingSpinner'
 import StatusBadge from '../components/StatusBadge'
 import PriorityBadge from '../components/PriorityBadge'
@@ -74,20 +75,23 @@ export default function SupervisorDashboard() {
   useEffect(() => {
     async function load() {
       setLoading(true)
-      const [{ data: ticketData }, { data: companyData }, { data: categoryData }] = await Promise.all([
+      // Daftar tiket sudah otomatis dibatasi RLS ke perusahaan+kategori
+      // yang terkait ke pengguna ini (kecuali Super Admin, yang melihat
+      // semua). Opsi filter juga disamakan.
+      const [{ data: ticketData }, { companies: companyData, categories: categoryData }] = await Promise.all([
         supabase
           .from('tickets')
           .select('*, categories(name), companies(name), reporter:profiles!tickets_created_by_fkey(full_name)')
           .order('created_at', { ascending: false }),
-        supabase.from('companies').select('id, name').order('name'),
-        supabase.from('categories').select('id, name').order('name'),
+        fetchVisibleCompaniesAndCategories(profile),
       ])
       setTickets(ticketData || [])
-      setCompanies(companyData || [])
-      setCategories(categoryData || [])
+      setCompanies(companyData)
+      setCategories(categoryData)
       setLoading(false)
     }
     load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const filtered = useMemo(() => {

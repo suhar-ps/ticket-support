@@ -130,6 +130,41 @@ exception when dependent_objects_still_exist then
 end $$;
 
 -- ---------------------------------------------------------------------
+-- AKSES PERUSAHAAN & KATEGORI PER PENGGUNA
+--
+-- Tabel penghubung many-to-many: satu pengguna bisa dikaitkan ke lebih
+-- dari satu perusahaan dan/atau kategori. Ini menentukan tiket dari
+-- perusahaan/kategori mana saja yang boleh dilihat pengguna tsb di
+-- Antrian Support & Laporan Analitik, serta pilihan yang tersedia saat
+-- membuat tiket baru. Super Admin selalu melihat semua, terlepas dari
+-- isi tabel ini (lihat fungsi can_access_ticket_scope di bawah).
+--
+-- Default untuk pengguna baru: SEMUA perusahaan & SEMUA kategori
+-- (lihat handle_new_user) — Super Admin bisa mempersempit belakangan
+-- lewat halaman Administrasi Pengguna.
+-- ---------------------------------------------------------------------
+create table if not exists user_companies (
+  user_id uuid references profiles(id) on delete cascade,
+  company_id uuid references companies(id) on delete cascade,
+  primary key (user_id, company_id)
+);
+
+create table if not exists user_categories (
+  user_id uuid references profiles(id) on delete cascade,
+  category_id uuid references categories(id) on delete cascade,
+  primary key (user_id, category_id)
+);
+
+alter table user_companies enable row level security;
+alter table user_categories enable row level security;
+
+drop policy if exists "read own company links" on user_companies;
+create policy "read own company links" on user_companies for select using (user_id = auth.uid());
+
+drop policy if exists "read own category links" on user_categories;
+create policy "read own category links" on user_categories for select using (user_id = auth.uid());
+
+-- ---------------------------------------------------------------------
 -- TICKETS
 -- ---------------------------------------------------------------------
 create sequence if not exists ticket_seq start 1;
@@ -218,6 +253,14 @@ drop policy if exists "support update tickets" on tickets;
 drop policy if exists "staff update tickets" on tickets;
 drop policy if exists "insert ticket update" on ticket_updates;
 drop policy if exists "read ticket updates" on ticket_updates;
+-- can_access_ticket_scope() dijamin di-drop DULU, sebelum current_user_role()
+-- di bawahnya — karena can_access_ticket_scope() bertipe "language sql"
+-- (bukan plpgsql), fungsi jenis ini SECARA OTOMATIS dicatat Postgres
+-- sebagai bergantung (hard dependency) ke fungsi lain yang dipanggil di
+-- dalam isinya (current_user_role()), tidak seperti plpgsql yang isinya
+-- opaque. Tanpa urutan ini, drop current_user_role() di re-run kedua
+-- akan gagal dengan error dependency yang sama seperti sebelumnya.
+drop function if exists public.can_access_ticket_scope(uuid, uuid);
 drop function if exists public.current_user_role();
 
 -- Dipakai HANYA oleh kebijakan tabel profiles terhadap dirinya sendiri.
@@ -252,6 +295,36 @@ as $$
 $$;
 
 grant execute on function public.current_user_role() to authenticated;
+
+-- Dipakai oleh kebijakan tickets/ticket_updates untuk menentukan apakah
+-- pengguna staf (Support/Supervisor) boleh mengakses tiket dengan
+-- kombinasi perusahaan+kategori tertentu, berdasarkan tabel penghubung
+-- user_companies/user_categories. Super Admin selalu true (tidak
+-- dibatasi). Tidak berisiko rekursi karena tidak dipasang di kebijakan
+-- tabel profiles.
+create or replace function public.can_access_ticket_scope(p_company_id uuid, p_category_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select
+    public.current_user_role() = 'superadmin'
+    or (
+      public.current_user_role() in ('support', 'supervisor')
+      and exists (
+        select 1 from public.user_companies uc
+        where uc.user_id = auth.uid() and uc.company_id = p_company_id
+      )
+      and exists (
+        select 1 from public.user_categories ucat
+        where ucat.user_id = auth.uid() and ucat.category_id = p_category_id
+      )
+    );
+$$;
+
+grant execute on function public.can_access_ticket_scope(uuid, uuid) to authenticated;
 
 alter table companies enable row level security;
 alter table categories enable row level security;
@@ -320,28 +393,36 @@ drop policy if exists "user read own ticket" on tickets;
 create policy "user read own ticket" on tickets for select using (created_by = auth.uid());
 
 create policy "staff read all tickets" on tickets for select using (
-  public.current_user_role() in ('support', 'supervisor', 'superadmin')
+  public.can_access_ticket_scope(company_id, category_id)
 );
 
 -- Support, Supervisor, dan Super Admin sama-sama bisa mengerjakan &
--- mengubah status tiket ("melakukan perbaikan"), bukan hanya Support.
+-- mengubah status tiket ("melakukan perbaikan"), bukan hanya Support —
+-- tapi tetap dibatasi ke perusahaan+kategori yang terkait ke mereka
+-- (Super Admin tidak dibatasi).
 drop policy if exists "support update tickets" on tickets;
 drop policy if exists "staff update tickets" on tickets;
 create policy "staff update tickets" on tickets for update using (
-  public.current_user_role() in ('support', 'supervisor', 'superadmin')
+  public.can_access_ticket_scope(company_id, category_id)
 );
 
 -- Ticket updates (log)
 create policy "insert ticket update" on ticket_updates for insert with check (
   user_id = auth.uid() and (
     exists (select 1 from tickets t where t.id = ticket_id and t.created_by = auth.uid())
-    or public.current_user_role() in ('support', 'supervisor', 'superadmin')
+    or exists (
+      select 1 from tickets t
+      where t.id = ticket_id and public.can_access_ticket_scope(t.company_id, t.category_id)
+    )
   )
 );
 
 create policy "read ticket updates" on ticket_updates for select using (
   exists (select 1 from tickets t where t.id = ticket_id and t.created_by = auth.uid())
-  or public.current_user_role() in ('support', 'supervisor', 'superadmin')
+  or exists (
+    select 1 from tickets t
+    where t.id = ticket_id and public.can_access_ticket_scope(t.company_id, t.category_id)
+  )
 );
 
 -- ---------------------------------------------------------------------
@@ -360,14 +441,25 @@ as $$
 declare
   the_role text := coalesce(new.raw_user_meta_data ->> 'role', 'user');
 begin
-  insert into public.profiles (id, full_name, role, company_id)
+  insert into public.profiles (id, full_name, role, company_id, default_company_id)
   values (
     new.id,
     coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
     the_role,
-    nullif(new.raw_user_meta_data ->> 'company_id', '')::uuid
+    nullif(new.raw_user_meta_data ->> 'company_id', '')::uuid,
+    nullif(new.raw_user_meta_data ->> 'default_company_id', '')::uuid
   )
   on conflict (id) do nothing;
+
+  -- Default akses: SEMUA perusahaan & SEMUA kategori. Super Admin bisa
+  -- mempersempit ini kapan pun lewat halaman Administrasi Pengguna.
+  insert into public.user_companies (user_id, company_id)
+  select new.id, c.id from public.companies c
+  on conflict do nothing;
+
+  insert into public.user_categories (user_id, category_id)
+  select new.id, cat.id from public.categories cat
+  on conflict do nothing;
 
   update auth.users
   set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', the_role)
@@ -418,6 +510,60 @@ $$;
 grant execute on function public.set_user_role(uuid, text) to authenticated;
 
 -- ---------------------------------------------------------------------
+-- FUNGSI ADMIN: atur ulang seluruh akses perusahaan seorang pengguna
+-- (mengganti total, bukan menambah). Kirim array kosong untuk mencabut
+-- semua akses perusahaan pengguna tsb.
+-- ---------------------------------------------------------------------
+create or replace function public.admin_set_user_companies(target_user_id uuid, company_ids uuid[])
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if public.current_user_role() <> 'superadmin' then
+    raise exception 'Hanya Super Admin yang dapat mengatur akses perusahaan pengguna.';
+  end if;
+
+  delete from public.user_companies where user_id = target_user_id;
+
+  insert into public.user_companies (user_id, company_id)
+  select target_user_id, x.company_id
+  from unnest(company_ids) as x(company_id)
+  where company_ids is not null;
+end;
+$$;
+
+grant execute on function public.admin_set_user_companies(uuid, uuid[]) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- FUNGSI ADMIN: atur ulang seluruh akses kategori seorang pengguna
+-- (mengganti total, bukan menambah). Kirim array kosong untuk mencabut
+-- semua akses kategori pengguna tsb.
+-- ---------------------------------------------------------------------
+create or replace function public.admin_set_user_categories(target_user_id uuid, category_ids uuid[])
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if public.current_user_role() <> 'superadmin' then
+    raise exception 'Hanya Super Admin yang dapat mengatur akses kategori pengguna.';
+  end if;
+
+  delete from public.user_categories where user_id = target_user_id;
+
+  insert into public.user_categories (user_id, category_id)
+  select target_user_id, x.category_id
+  from unnest(category_ids) as x(category_id)
+  where category_ids is not null;
+end;
+$$;
+
+grant execute on function public.admin_set_user_categories(uuid, uuid[]) to authenticated;
+
+-- ---------------------------------------------------------------------
 -- FUNGSI ADMIN: daftar seluruh pengguna (termasuk email, yang normalnya
 -- tidak boleh dibaca langsung oleh client) untuk halaman Administrasi
 -- Pengguna. Sama seperti di atas, dilindungi pengecekan role di dalam
@@ -434,7 +580,9 @@ returns table (
   email text,
   full_name text,
   role text,
-  created_at timestamptz
+  created_at timestamptz,
+  company_ids uuid[],
+  category_ids uuid[]
 )
 language plpgsql
 security definer
@@ -446,7 +594,20 @@ begin
   end if;
 
   return query
-    select p.id, u.email::text, p.full_name, p.role, p.created_at
+    select
+      p.id,
+      u.email::text,
+      p.full_name,
+      p.role,
+      p.created_at,
+      coalesce(
+        (select array_agg(uc.company_id) from public.user_companies uc where uc.user_id = p.id),
+        array[]::uuid[]
+      ) as company_ids,
+      coalesce(
+        (select array_agg(ucat.category_id) from public.user_categories ucat where ucat.user_id = p.id),
+        array[]::uuid[]
+      ) as category_ids
     from public.profiles p
     join auth.users u on u.id = p.id
     order by p.created_at desc;
@@ -535,6 +696,28 @@ set raw_app_meta_data = coalesce(u.raw_app_meta_data, '{}'::jsonb) || jsonb_buil
 from public.profiles p
 where p.id = u.id;
 
+-- Pengguna lama (sebelum fitur akses perusahaan/kategori ini ada) belum
+-- punya baris apa pun di user_companies/user_categories. Beri mereka
+-- akses ke SEMUA perusahaan & kategori sebagai default yang aman, sama
+-- seperti pengguna baru — supaya tidak ada yang tiba-tiba kehilangan
+-- akses begitu migrasi ini berjalan. Dicek per pengguna (bukan asal
+-- timpa) sehingga AMAN dijalankan ulang: pengguna yang aksesnya SUDAH
+-- pernah dipersempit Super Admin (walau cuma tersisa 1 baris) TIDAK
+-- akan disentuh lagi oleh blok ini.
+insert into public.user_companies (user_id, company_id)
+select p.id, c.id
+from public.profiles p
+cross join public.companies c
+where not exists (select 1 from public.user_companies uc where uc.user_id = p.id)
+on conflict do nothing;
+
+insert into public.user_categories (user_id, category_id)
+select p.id, cat.id
+from public.profiles p
+cross join public.categories cat
+where not exists (select 1 from public.user_categories ucat where ucat.user_id = p.id)
+on conflict do nothing;
+
 commit;
 
 -- =====================================================================
@@ -557,5 +740,9 @@ commit;
 --    pengguna lain (mis. dropdown "Ditugaskan ke") baru berlaku setelah
 --    pengguna yang bersangkutan logout lalu login lagi (atau token-nya
 --    di-refresh otomatis, biasanya < 1 jam).
--- 5) File ini AMAN dijalankan ulang berkali-kali (idempotent).
+-- 5) Akses perusahaan & kategori per pengguna diatur lewat menu
+--    Administrasi Pengguna (tombol "Kelola Akses" di tiap baris).
+--    Default untuk semua pengguna (baru maupun lama): SEMUA perusahaan
+--    & SEMUA kategori terpilih.
+-- 6) File ini AMAN dijalankan ulang berkali-kali (idempotent).
 -- =====================================================================

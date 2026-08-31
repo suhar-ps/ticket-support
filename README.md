@@ -19,9 +19,15 @@ Stack: **React + Vite + Tailwind CSS** (frontend, di-hosting di **Netlify**) dan
 | Peran | Fitur |
 |---|---|
 | **Pelapor (User)** | Membuat tiket baru, memilih perusahaan & kategori masalah (bisa disimpan sebagai perusahaan default pribadi), melihat status tiket miliknya, menambahkan catatan tambahan |
-| **Tim Support** | Melihat semua tiket dari semua perusahaan, filter & pencarian, mengubah status, menugaskan ke diri sendiri/rekan, mencatat riwayat perbaikan |
+| **Tim Support** | Melihat tiket dari perusahaan & kategori yang menjadi akses pengguna tsb (diatur Super Admin), filter & pencarian, mengubah status, menugaskan ke diri sendiri/rekan, mencatat riwayat perbaikan |
 | **Supervisor** | Semua kemampuan Support (bisa ikut melaporkan tiket baru, melihat tiket buatannya sendiri di menu **Tiket Saya**, & melakukan perbaikan) **ditambah** Dashboard Laporan & Analitik dengan filter periode tanggal & perusahaan (bisa disimpan sebagai tampilan default pribadi), grafik per status/kategori/perusahaan, rata-rata waktu penyelesaian, tabel detail yang bisa diklik untuk lihat isi & riwayat tanggapan tiket, dan ekspor CSV |
-| **Super Admin** | Semua kemampuan Supervisor **ditambah** Administrasi Pengguna (tambah, edit, ganti password, hapus, ubah role) — satu-satunya peran yang bisa mengelola akun pengguna lain |
+| **Super Admin** | Semua kemampuan Supervisor **ditambah** Administrasi Pengguna (tambah, edit, ganti password, hapus, ubah role, atur akses perusahaan & kategori) — satu-satunya peran yang bisa mengelola akun pengguna lain, dan satu-satunya yang TIDAK dibatasi akses perusahaan/kategori (selalu melihat semua) |
+
+**Akses perusahaan & kategori per pengguna**: setiap akun (peran apa pun) hanya melihat &
+bisa membuat tiket untuk perusahaan/kategori yang menjadi aksesnya — diatur Super Admin
+lewat tombol **"Kelola Akses"** di Administrasi Pengguna. Satu akun bisa dikaitkan ke lebih
+dari satu perusahaan/kategori. Default untuk akun baru (baik daftar sendiri maupun dibuat
+Super Admin): SEMUA perusahaan & SEMUA kategori terpilih.
 
 **Perusahaan** yang sudah tersedia: PT SAS International, PT Petrindo Semesta, PT Sarana
 Instrument, PT Omni Composite Solutions, PT Mika Tunggal, PT Agora.
@@ -149,7 +155,10 @@ variables**) sebelum atau setelah deploy, lalu **trigger deploy ulang** agar ter
 Pendaftaran publik (`/register`) selalu membuat akun dengan role **Pelapor** — tidak ada
 pilihan role di form itu. Untuk mendapatkan akun Support/Supervisor/Super Admin:
 
-1. **Daftar** akun pertama lewat halaman Daftar (otomatis jadi Pelapor).
+1. **Daftar** akun pertama lewat halaman Daftar (otomatis jadi Pelapor, dengan akses ke
+   SEMUA perusahaan & kategori secara default — lihat Bagian 7 soal cara mempersempitnya).
+   Form Daftar juga meminta **Perusahaan Default** — sekadar untuk mengisi otomatis pilihan
+   perusahaan saat membuat tiket, bisa diubah kapan pun.
 2. **Angkat akun itu jadi Super Admin** satu kali lewat SQL Editor (lihat Bagian 7) — ini
    satu-satunya langkah manual yang dibutuhkan, untuk "membuka pintu" pertama kali.
 3. **Login sebagai Super Admin** → buka menu **Administrasi Pengguna** → klik
@@ -209,17 +218,50 @@ supaya JWT barunya membawa klaim role yang baru — ini memengaruhi kemampuan me
 profil pengguna lain (mis. dropdown "Ditugaskan ke"), meski visibilitas tiket sendiri sudah
 langsung berubah tanpa perlu itu.
 
-## 8. Catatan Keamanan untuk Produksi
+## 8. Akses Perusahaan & Kategori per Pengguna
+
+Setiap akun (peran apa pun kecuali Super Admin) hanya bisa **melihat** tiket dan **membuat**
+tiket baru untuk perusahaan/kategori yang menjadi aksesnya. Ini diatur lewat tabel
+penghubung `user_companies` dan `user_categories` — satu akun bisa dikaitkan ke lebih dari
+satu perusahaan dan/atau kategori sekaligus.
+
+**Cara mengatur — lewat aplikasi, sebagai Super Admin, di menu Administrasi Pengguna:**
+klik tombol **"Kelola Akses"** di baris pengguna yang dituju → centang perusahaan &
+kategori yang boleh dilihat pengguna tsb (ada tombol "Pilih Semua" / "Kosongkan" di
+masing-masing) → **Simpan Akses**. Perubahan berlaku **langsung** (real-time, tidak perlu
+logout/login), karena kebijakan RLS membaca tabel penghubung ini langsung dari database.
+
+**Aturan visibilitas:**
+- Kalau pengguna hanya dikaitkan ke **satu** perusahaan → hanya tiket perusahaan itu yang
+  terlihat (di Antrian Support, Laporan & Analitik, dan pilihan saat Buat Tiket).
+- Kalau dikaitkan ke **beberapa** perusahaan → tiket dari perusahaan-perusahaan itu saja
+  yang terlihat.
+- Sama persis untuk kategori — kombinasi perusahaan **dan** kategori sama-sama harus cocok
+  agar sebuah tiket terlihat oleh pengguna staf tsb.
+- **Super Admin selalu melihat semua**, terlepas dari tabel penghubung ini.
+- Tiket milik sendiri (di menu **Tiket Saya**, berdasarkan siapa pelapornya) selalu terlihat
+  pemiliknya tanpa dibatasi tabel ini — pembatasan hanya berlaku untuk melihat tiket *milik
+  orang lain* di Antrian Support / Laporan & Analitik.
+
+**Default**: akun baru (baik daftar sendiri lewat `/register` maupun dibuat Super Admin
+lewat "+ Tambah Pengguna") otomatis mendapat akses ke **SEMUA** perusahaan & **SEMUA**
+kategori — aman secara default, Super Admin baru mempersempitnya belakangan sesuai
+kebutuhan.
+
+## 9. Catatan Keamanan untuk Produksi
 
 - Aktifkan **Confirm email** di Supabase agar alamat email pelapor terverifikasi.
 - Pertimbangkan menonaktifkan pendaftaran umum (`/register`) dan membuat seluruh akun staf
   lewat menu Administrasi Pengguna saja, jika akses harus tertutup untuk karyawan tertentu.
+- Karena akun baru default-nya mendapat akses ke SEMUA perusahaan & kategori (lihat Bagian
+  8), pertimbangkan meninjau & mempersempit akses tiap akun staf lewat "Kelola Akses"
+  setelah dibuat, terutama jika pendaftaran umum masih dibiarkan aktif.
 - Tinjau kembali kebijakan Row Level Security (`supabase/schema.sql`) apabila ada kebutuhan
-  akses tambahan, misalnya supervisor per-perusahaan (bukan lintas semua perusahaan).
+  akses lain di luar kombinasi perusahaan+kategori yang sudah ada.
 
 ---
 
-## 9. Kustomisasi
+## 10. Kustomisasi
 
 - **Menambah/ubah perusahaan atau kategori**: edit langsung lewat Supabase Table Editor
   pada tabel `companies` / `categories`, atau jalankan `INSERT` SQL tambahan.

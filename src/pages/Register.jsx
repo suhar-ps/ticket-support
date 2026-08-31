@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 
@@ -9,14 +9,27 @@ import { supabase } from '../lib/supabaseClient'
 const DEFAULT_ROLE = 'user'
 
 export default function Register() {
+  const [companies, setCompanies] = useState([])
   const [form, setForm] = useState({
     fullName: '',
     email: '',
     password: '',
+    defaultCompanyId: '',
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    supabase
+      .from('companies')
+      .select('id, name')
+      .order('name')
+      .then(({ data }) => {
+        setCompanies(data || [])
+        if (data?.length) setForm((f) => ({ ...f, defaultCompanyId: data[0].id }))
+      })
+  }, [])
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -43,6 +56,7 @@ export default function Register() {
         data: {
           full_name: form.fullName,
           role: DEFAULT_ROLE,
+          default_company_id: form.defaultCompanyId || null,
         },
       },
     })
@@ -70,6 +84,7 @@ export default function Register() {
           id: userId,
           full_name: form.fullName,
           role: DEFAULT_ROLE,
+          default_company_id: form.defaultCompanyId || null,
         },
         { onConflict: 'id' }
       )
@@ -131,6 +146,24 @@ export default function Register() {
               value={form.password}
               onChange={(e) => update('password', e.target.value)}
             />
+          </div>
+
+          <div>
+            <label className="label" htmlFor="defaultCompany">Perusahaan Default</label>
+            <select
+              id="defaultCompany"
+              className="input"
+              value={form.defaultCompanyId}
+              onChange={(e) => update('defaultCompanyId', e.target.value)}
+            >
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-ink-light">
+              Dipakai untuk mengisi otomatis pilihan perusahaan saat Anda membuat tiket —
+              bisa diubah kapan pun nanti.
+            </p>
           </div>
 
           {error && (

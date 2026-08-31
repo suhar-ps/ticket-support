@@ -33,7 +33,7 @@ export default function Login() {
           <img src="/logo.png" alt="FixHub" className="mb-3 h-14 w-14 object-contain" />
           <h1 className="font-display text-2xl font-bold text-ink">FixHub</h1>
           <p className="mt-1 text-sm text-ink-light">
-            Sistem Terpadu Pelaporan Masalah &amp; Pelacakan Proses Perbaikan Aset,
+            Sistem Terpadu Pelaporan Gangguan &amp; Pelacakan Proses Perbaikan Aset,
             Infrastruktur serta Fasilitas Gedung SAS Group
           </p>
         </div>

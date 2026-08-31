@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { fetchVisibleCompaniesAndCategories } from '../lib/access'
 import { ASSET_TYPES, PRIORITIES } from '../data/constants'
 
 export default function NewTicket() {
@@ -26,35 +27,26 @@ export default function NewTicket() {
   })
 
   useEffect(() => {
-    supabase
-      .from('categories')
-      .select('id, name')
-      .order('name')
-      .then(({ data }) => {
-        setCategories(data || [])
-        if (data?.length) setForm((f) => ({ ...f, categoryId: data[0].id }))
-      })
-
-    supabase
-      .from('companies')
-      .select('id, name')
-      .order('name')
-      .then(({ data }) => {
-        setCompanies(data || [])
-        if (data?.length) {
-          // Utamakan perusahaan default yang sudah disimpan pengguna
-          // (kalau ada dan masih valid); kalau tidak, baru fallback ke
-          // perusahaan pertama secara alfabetis. Dibaca sekali saat
-          // halaman dibuka — profil sudah pasti termuat di titik ini
-          // (dijamin oleh Layout), jadi tidak perlu jadi dependency efek
-          // ini (kalau iya, kategori & daftar perusahaan akan ter-fetch
-          // ulang dan mereset pilihan kategori setiap kali tombol
-          // "Jadikan Default" ditekan).
-          const preferred = profile?.default_company_id
-          const isValid = preferred && data.some((c) => c.id === preferred)
-          setForm((f) => ({ ...f, companyId: isValid ? preferred : data[0].id }))
-        }
-      })
+    // Hanya perusahaan & kategori yang boleh dilihat pengguna ini
+    // (diatur Super Admin di Administrasi Pengguna) yang muncul di sini
+    // — Super Admin sendiri melihat semua. Dibaca sekali saat halaman
+    // dibuka; profil sudah pasti termuat di titik ini (dijamin Layout),
+    // jadi tidak perlu jadi dependency efek ini (kalau iya, daftar akan
+    // ter-fetch ulang dan mereset pilihan setiap kali tombol "Jadikan
+    // Default" ditekan).
+    fetchVisibleCompaniesAndCategories(profile).then(({ companies: c, categories: cat }) => {
+      setCompanies(c)
+      setCategories(cat)
+      setForm((f) => ({
+        ...f,
+        categoryId: cat.length ? cat[0].id : '',
+        companyId: c.length
+          ? (profile?.default_company_id && c.some((x) => x.id === profile.default_company_id)
+              ? profile.default_company_id
+              : c[0].id)
+          : '',
+      }))
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -141,31 +133,43 @@ export default function NewTicket() {
               {savingDefault ? 'Menyimpan...' : defaultSaved ? 'Tersimpan ✓' : 'Jadikan Default'}
             </button>
           </div>
-          <select
-            id="company"
-            className="input"
-            value={form.companyId}
-            onChange={(e) => update('companyId', e.target.value)}
-          >
-            {companies.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          {companies.length === 0 ? (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              Anda belum memiliki akses ke perusahaan mana pun. Hubungi Super Admin.
+            </p>
+          ) : (
+            <select
+              id="company"
+              className="input"
+              value={form.companyId}
+              onChange={(e) => update('companyId', e.target.value)}
+            >
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="label" htmlFor="category">Kategori Masalah</label>
-            <select
-              id="category"
-              className="input"
-              value={form.categoryId}
-              onChange={(e) => update('categoryId', e.target.value)}
-            >
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            {categories.length === 0 ? (
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                Belum ada akses kategori.
+              </p>
+            ) : (
+              <select
+                id="category"
+                className="input"
+                value={form.categoryId}
+                onChange={(e) => update('categoryId', e.target.value)}
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div>
