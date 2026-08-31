@@ -13,6 +13,7 @@ import TicketDetail from './pages/TicketDetail'
 import SupportDashboard from './pages/SupportDashboard'
 import SupervisorDashboard from './pages/SupervisorDashboard'
 import UserAdministration from './pages/UserAdministration'
+import SupportContacts from './pages/SupportContacts'
 
 function HomeByRole() {
   const { profile, loading } = useAuth()
@@ -82,6 +83,15 @@ export default function App() {
         element={
           <ProtectedRoute allowedRoles={['superadmin']}>
             <Layout><UserAdministration /></Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/support-contacts"
+        element={
+          <ProtectedRoute allowedRoles={['superadmin']}>
+            <Layout><SupportContacts /></Layout>
           </ProtectedRoute>
         }
       />

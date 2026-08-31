@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { fetchVisibleCompaniesAndCategories } from '../lib/access'
-import { ASSET_TYPES, PRIORITIES } from '../data/constants'
+import { ASSET_TYPES, PRIORITIES, labelFor } from '../data/constants'
 
 export default function NewTicket() {
   const { user, profile, refreshProfile } = useAuth()
@@ -74,6 +74,15 @@ export default function NewTicket() {
     setError('')
     setLoading(true)
 
+    // Buka tab kosong SEKARANG JUGA — langsung sebagai respons klik
+    // pengguna (sinkron), bukan setelah proses async selesai. Kalau
+    // ditunda sampai setelah await, browser modern akan menganggapnya
+    // pop-up yang tidak diminta dan memblokirnya. Tab ini diarahkan ke
+    // WhatsApp belakangan setelah tiket berhasil disimpan & nomor
+    // kontak yang cocok ditemukan — atau ditutup lagi kalau tidak ada
+    // kontak yang cocok.
+    const waWindow = window.open('', '_blank')
+
     const { data, error: insertError } = await supabase
       .from('tickets')
       .insert({
@@ -90,13 +99,42 @@ export default function NewTicket() {
       .select()
       .single()
 
-    setLoading(false)
-
     if (insertError) {
+      setLoading(false)
       setError(insertError.message)
+      if (waWindow) waWindow.close()
       return
     }
 
+    // Cari nomor WhatsApp kontak support yang cocok dengan perusahaan +
+    // kategori tiket ini. Kalau tidak ada yang cocok (belum dikonfigurasi
+    // Super Admin di menu Kontak Support), tab kosong tadi ditutup lagi
+    // tanpa mengganggu — pembuatan tiket tetap dianggap berhasil.
+    const { data: waNumber } = await supabase.rpc('get_support_whatsapp', {
+      p_company_id: form.companyId,
+      p_category_id: form.categoryId,
+    })
+
+    if (waNumber && waWindow) {
+      const companyName = companies.find((c) => c.id === form.companyId)?.name || ''
+      const message = [
+        `*Tiket Baru: ${data.ticket_number}*`,
+        `Judul: ${data.title}`,
+        `Perusahaan: ${companyName}`,
+        `Prioritas: ${labelFor(PRIORITIES, data.priority)}`,
+        '',
+        'Deskripsi:',
+        data.description,
+        '',
+        `Lihat detail: ${window.location.origin}/tickets/${data.id}`,
+      ].join('\n')
+
+      waWindow.location.href = `https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`
+    } else if (waWindow) {
+      waWindow.close()
+    }
+
+    setLoading(false)
     navigate(`/tickets/${data.id}`)
   }
 
@@ -244,6 +282,11 @@ export default function NewTicket() {
         </div>
 
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+
+        <p className="text-xs text-ink-light">
+          Setelah tiket tersimpan, WhatsApp mungkin terbuka otomatis di tab baru dengan pesan
+          sudah terisi ke kontak support terkait — tinggal periksa &amp; klik Kirim di sana.
+        </p>
 
         <div className="flex justify-end gap-3">
           <button type="button" onClick={() => navigate(-1)} className="btn-ghost">

@@ -21,7 +21,7 @@ Stack: **React + Vite + Tailwind CSS** (frontend, di-hosting di **Netlify**) dan
 | **Pelapor (User)** | Membuat tiket baru, memilih perusahaan & kategori masalah (bisa disimpan sebagai perusahaan default pribadi), melihat status tiket miliknya, menambahkan catatan tambahan |
 | **Tim Support** | Melihat tiket dari perusahaan & kategori yang menjadi akses pengguna tsb (diatur Super Admin), filter & pencarian, mengubah status, menugaskan ke diri sendiri/rekan, mencatat riwayat perbaikan |
 | **Supervisor** | Semua kemampuan Support (bisa ikut melaporkan tiket baru, melihat tiket buatannya sendiri di menu **Tiket Saya**, & melakukan perbaikan) **ditambah** Dashboard Laporan & Analitik dengan filter periode tanggal & perusahaan (bisa disimpan sebagai tampilan default pribadi), grafik per status/kategori/perusahaan, rata-rata waktu penyelesaian, tabel detail yang bisa diklik untuk lihat isi & riwayat tanggapan tiket, dan ekspor CSV |
-| **Super Admin** | Semua kemampuan Supervisor **ditambah** Administrasi Pengguna (tambah, edit, ganti password, hapus, ubah role, atur akses perusahaan & kategori) — satu-satunya peran yang bisa mengelola akun pengguna lain, dan satu-satunya yang TIDAK dibatasi akses perusahaan/kategori (selalu melihat semua) |
+| **Super Admin** | Semua kemampuan Supervisor **ditambah** Administrasi Pengguna (tambah, edit, ganti password, hapus, ubah role, atur akses perusahaan & kategori) dan **Kontak Support** (nomor WhatsApp per kombinasi perusahaan+kategori) — satu-satunya peran yang bisa mengelola akun pengguna lain, dan satu-satunya yang TIDAK dibatasi akses perusahaan/kategori (selalu melihat semua) |
 
 **Akses perusahaan & kategori per pengguna**: setiap akun (peran apa pun) hanya melihat &
 bisa membuat tiket untuk perusahaan/kategori yang menjadi aksesnya — diatur Super Admin
@@ -257,7 +257,33 @@ logout/login), karena kebijakan RLS membaca tabel penghubung ini langsung dari d
   perusahaan, akun baru mendapat akses ke SEMUA perusahaan & SEMUA kategori sebagai default
   aman — Super Admin lalu mempersempitnya lewat "Kelola Akses" sesuai kebutuhan.
 
-## 9. Catatan Keamanan untuk Produksi
+## 9. Notifikasi WhatsApp ke Support (Kontak Support)
+
+Begitu tiket baru berhasil disimpan, aplikasi otomatis membuka WhatsApp (aplikasi di HP,
+atau WhatsApp Web/Desktop di laptop) di tab baru, dengan pesan **sudah terisi otomatis**:
+nomor tiket, judul, perusahaan, prioritas, dan deskripsi lengkap. Pengguna tetap perlu
+**klik "Kirim" secara manual** di WhatsApp — ini bukan keterbatasan implementasi, tapi cara
+kerja dasar tautan `wa.me`: WhatsApp sengaja tidak mengizinkan pesan terkirim otomatis tanpa
+sentuhan manusia (mencegah penyalahgunaan untuk spam). Pendekatan ini sepenuhnya **gratis**,
+tidak seperti WhatsApp Business API resmi yang berbayar per pesan untuk notifikasi
+bisnis-ke-pengguna.
+
+**Nomor tujuannya ditentukan otomatis** dari kombinasi **perusahaan + kategori** tiket yang
+baru dibuat, lewat menu **Kontak Support** (khusus Super Admin) — satu baris di sana berarti
+satu nomor WhatsApp penanggung jawab untuk satu kombinasi perusahaan+kategori tertentu. Satu
+perusahaan bisa punya kontak berbeda untuk kategori berbeda (mis. kontak IT terpisah dari
+kontak fasilitas gedung).
+
+Kalau kombinasi perusahaan+kategori suatu tiket belum punya kontak terdaftar, aplikasi
+diam-diam tidak membuka WhatsApp — pembuatan tiket tetap berhasil normal. Halaman Kontak
+Support menampilkan peringatan kalau ada kombinasi yang belum dikonfigurasi.
+
+Nomor WhatsApp harus diisi dalam **format internasional tanpa tanda "+"** (mis.
+`6281234567890` untuk nomor Indonesia, bukan `081234567890` atau `+62 812-3456-7890`) — form
+Tambah/Edit Kontak otomatis membuang karakter selain angka, tapi kode negaranya (`62` untuk
+Indonesia) harus diisi manual, tidak otomatis dikonversi dari awalan `0`.
+
+## 10. Catatan Keamanan untuk Produksi
 
 - Aktifkan **Confirm email** di Supabase agar alamat email pelapor terverifikasi.
 - Pertimbangkan menonaktifkan pendaftaran umum (`/register`) dan membuat seluruh akun staf
@@ -269,7 +295,7 @@ logout/login), karena kebijakan RLS membaca tabel penghubung ini langsung dari d
 
 ---
 
-## 10. Kustomisasi
+## 11. Kustomisasi
 
 - **Menambah/ubah perusahaan atau kategori**: edit langsung lewat Supabase Table Editor
   pada tabel `companies` / `categories`, atau jalankan `INSERT` SQL tambahan.

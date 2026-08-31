@@ -22,6 +22,7 @@ const NAV_BY_ROLE = {
     { to: '/my-tickets', label: 'Tiket Saya' },
     { to: '/queue', label: 'Antrian Support' },
     { to: '/admin/users', label: 'Administrasi Pengguna' },
+    { to: '/admin/support-contacts', label: 'Kontak Support' },
   ],
 }
 

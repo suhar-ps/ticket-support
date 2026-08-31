@@ -172,6 +172,36 @@ drop policy if exists "read own category links" on user_categories;
 create policy "read own category links" on user_categories for select using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------
+-- MASTER KONTAK SUPPORT (WhatsApp)
+--
+-- Satu baris = satu nomor WhatsApp penanggung jawab untuk kombinasi
+-- PERUSAHAAN + KATEGORI tertentu. Dipakai untuk mengisi otomatis pesan
+-- WhatsApp ("ada tiket baru...") saat pelapor menyimpan tiket baru —
+-- nomor yang dipakai disesuaikan dengan perusahaan & kategori tiket
+-- tsb. Dikelola sepenuhnya oleh Super Admin lewat menu Kontak Support.
+--
+-- Hanya Super Admin yang boleh membaca/mengubah tabel ini secara
+-- langsung. Pengguna lain mengambil SATU nomor yang relevan lewat
+-- fungsi get_support_whatsapp() di bawah — bukan lewat akses tabel
+-- langsung — supaya seorang pelapor tidak bisa melihat seluruh daftar
+-- kontak perusahaan lain.
+-- ---------------------------------------------------------------------
+create table if not exists support_contacts (
+  id uuid primary key default uuid_generate_v4(),
+  company_id uuid references companies(id) on delete cascade not null,
+  category_id uuid references categories(id) on delete cascade not null,
+  contact_name text,
+  whatsapp_number text not null,
+  created_at timestamptz default now(),
+  unique (company_id, category_id)
+);
+
+alter table support_contacts enable row level security;
+-- Kebijakan RLS-nya, fungsi lookup, dan seed data dipasang belakangan
+-- di file ini (lihat dekat current_user_role()) — keduanya butuh fungsi
+-- current_user_role() yang belum didefinisikan di titik ini.
+
+-- ---------------------------------------------------------------------
 -- TICKETS
 -- ---------------------------------------------------------------------
 create sequence if not exists ticket_seq start 1;
@@ -302,6 +332,66 @@ as $$
 $$;
 
 grant execute on function public.current_user_role() to authenticated;
+
+-- ---------------------------------------------------------------------
+-- MASTER KONTAK SUPPORT (lanjutan — tabel support_contacts sudah dibuat
+-- lebih awal di file ini, bagian ini butuh current_user_role() yang
+-- baru saja didefinisikan di atas)
+-- ---------------------------------------------------------------------
+drop policy if exists "superadmin manage support contacts" on support_contacts;
+create policy "superadmin manage support contacts" on support_contacts for all using (
+  public.current_user_role() = 'superadmin'
+) with check (
+  public.current_user_role() = 'superadmin'
+);
+
+-- Dipanggil dari halaman Buat Tiket begitu tiket berhasil disimpan.
+-- Mengembalikan NULL kalau tidak ada kontak yang cocok untuk kombinasi
+-- perusahaan+kategori tsb — frontend menangani ini dengan diam-diam
+-- tidak membuka WhatsApp (tidak menggagalkan pembuatan tiket).
+create or replace function public.get_support_whatsapp(p_company_id uuid, p_category_id uuid)
+returns text
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select whatsapp_number from public.support_contacts
+  where company_id = p_company_id and category_id = p_category_id
+  limit 1;
+$$;
+
+grant execute on function public.get_support_whatsapp(uuid, uuid) to authenticated;
+
+-- Seed data dari daftar kontak yang diberikan (list-wa.xlsx). Dicocokkan
+-- lewat NAMA perusahaan & kategori (bukan UUID) supaya tidak bergantung
+-- urutan pembuatan baris. Aman dijalankan ulang — nomor akan diperbarui
+-- kalau sumbernya berubah.
+insert into support_contacts (company_id, category_id, whatsapp_number)
+select c.id, cat.id, v.whatsapp_number
+from (values
+  ('PT Agora', 'Facilities & Maintenance', '6289618808688'),
+  ('PT Agora', 'Housekeeping & Environment', '6289618808688'),
+  ('PT Mika Tunggal', 'Facilities & Maintenance', '6289618808688'),
+  ('PT Mika Tunggal', 'Housekeeping & Environment', '6289618808688'),
+  ('PT Omni Composite Solutions', 'Facilities & Maintenance', '6289618808688'),
+  ('PT Omni Composite Solutions', 'Housekeeping & Environment', '6289618808688'),
+  ('PT Petrindo Semesta', 'Facilities & Maintenance', '6289618808688'),
+  ('PT Petrindo Semesta', 'Housekeeping & Environment', '6289618808688'),
+  ('PT Petrindo Semesta', 'Hardware', '628161130668'),
+  ('PT Petrindo Semesta', 'Software', '628161130668'),
+  ('PT Petrindo Semesta', 'Network & Infrastructure', '628161130668'),
+  ('PT Sarana Instrument', 'Facilities & Maintenance', '6289618808688'),
+  ('PT Sarana Instrument', 'Housekeeping & Environment', '6289618808688'),
+  ('PT SAS International', 'Facilities & Maintenance', '6289618808688'),
+  ('PT SAS International', 'Housekeeping & Environment', '6289618808688'),
+  ('PT SAS International', 'Hardware', '628161130668'),
+  ('PT SAS International', 'Software', '628161130668'),
+  ('PT SAS International', 'Network & Infrastructure', '628161130668')
+) as v(company_name, category_name, whatsapp_number)
+join companies c on c.name = v.company_name
+join categories cat on cat.name = v.category_name
+on conflict (company_id, category_id) do update set whatsapp_number = excluded.whatsapp_number;
 
 -- Dipakai oleh kebijakan tickets/ticket_updates untuk menentukan apakah
 -- pengguna staf (Support/Supervisor) boleh mengakses tiket dengan
