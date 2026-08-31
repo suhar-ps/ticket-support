@@ -26,8 +26,14 @@ Stack: **React + Vite + Tailwind CSS** (frontend, di-hosting di **Netlify**) dan
 **Akses perusahaan & kategori per pengguna**: setiap akun (peran apa pun) hanya melihat &
 bisa membuat tiket untuk perusahaan/kategori yang menjadi aksesnya — diatur Super Admin
 lewat tombol **"Kelola Akses"** di Administrasi Pengguna. Satu akun bisa dikaitkan ke lebih
-dari satu perusahaan/kategori. Default untuk akun baru (baik daftar sendiri maupun dibuat
-Super Admin): SEMUA perusahaan & SEMUA kategori terpilih.
+dari satu perusahaan/kategori. Default untuk akun baru:
+- **Perusahaan**: hanya perusahaan yang dipilih sebagai "Perusahaan Default" saat
+  mendaftar sendiri lewat `/register` (kalau dibuat Super Admin lewat "+ Tambah Pengguna",
+  fallback ke SEMUA perusahaan karena form itu tidak meminta pilihan default).
+- **Kategori**: selalu SEMUA kategori terpilih.
+
+Super Admin bisa mengubah keduanya kapan pun lewat "Kelola Akses" — pengaturan itu selalu
+menggantikan (bukan sekadar menambah) apa pun yang di-set otomatis saat pendaftaran.
 
 **Perusahaan** yang sudah tersedia: PT SAS International, PT Petrindo Semesta, PT Sarana
 Instrument, PT Omni Composite Solutions, PT Mika Tunggal, PT Agora.
@@ -243,19 +249,21 @@ logout/login), karena kebijakan RLS membaca tabel penghubung ini langsung dari d
   pemiliknya tanpa dibatasi tabel ini — pembatasan hanya berlaku untuk melihat tiket *milik
   orang lain* di Antrian Support / Laporan & Analitik.
 
-**Default**: akun baru (baik daftar sendiri lewat `/register` maupun dibuat Super Admin
-lewat "+ Tambah Pengguna") otomatis mendapat akses ke **SEMUA** perusahaan & **SEMUA**
-kategori — aman secara default, Super Admin baru mempersempitnya belakangan sesuai
-kebutuhan.
+**Default**:
+- **Daftar sendiri lewat `/register`**: akses perusahaan langsung dipersempit ke HANYA
+  perusahaan yang dipilih di kolom "Perusahaan Default" pada form Daftar — bukan semua
+  perusahaan. Kategori tetap default SEMUA.
+- **Dibuat Super Admin lewat "+ Tambah Pengguna"**: karena form itu tidak meminta pilihan
+  perusahaan, akun baru mendapat akses ke SEMUA perusahaan & SEMUA kategori sebagai default
+  aman — Super Admin lalu mempersempitnya lewat "Kelola Akses" sesuai kebutuhan.
 
 ## 9. Catatan Keamanan untuk Produksi
 
 - Aktifkan **Confirm email** di Supabase agar alamat email pelapor terverifikasi.
 - Pertimbangkan menonaktifkan pendaftaran umum (`/register`) dan membuat seluruh akun staf
   lewat menu Administrasi Pengguna saja, jika akses harus tertutup untuk karyawan tertentu.
-- Karena akun baru default-nya mendapat akses ke SEMUA perusahaan & kategori (lihat Bagian
-  8), pertimbangkan meninjau & mempersempit akses tiap akun staf lewat "Kelola Akses"
-  setelah dibuat, terutama jika pendaftaran umum masih dibiarkan aktif.
+- Kategori akun baru selalu default SEMUA (lihat Bagian 8) — pertimbangkan meninjau &
+  mempersempit akses kategori tiap akun staf lewat "Kelola Akses" setelah dibuat.
 - Tinjau kembali kebijakan Row Level Security (`supabase/schema.sql`) apabila ada kebutuhan
   akses lain di luar kombinasi perusahaan+kategori yang sudah ada.
 

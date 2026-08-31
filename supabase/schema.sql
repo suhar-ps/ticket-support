@@ -139,9 +139,16 @@ end $$;
 -- membuat tiket baru. Super Admin selalu melihat semua, terlepas dari
 -- isi tabel ini (lihat fungsi can_access_ticket_scope di bawah).
 --
--- Default untuk pengguna baru: SEMUA perusahaan & SEMUA kategori
--- (lihat handle_new_user) — Super Admin bisa mempersempit belakangan
--- lewat halaman Administrasi Pengguna.
+-- Default untuk pengguna baru (lihat handle_new_user):
+--   - Perusahaan: HANYA perusahaan yang dipilih sebagai "Perusahaan
+--     Default" saat registrasi publik (/register). Kalau tidak ada
+--     pilihan default (mis. akun dibuat Super Admin lewat "+ Tambah
+--     Pengguna"), fallback ke SEMUA perusahaan.
+--   - Kategori: selalu SEMUA kategori (tidak ada pilihan kategori saat
+--     registrasi).
+-- Super Admin bisa mengubah keduanya kapan pun lewat tombol "Kelola
+-- Akses" di Administrasi Pengguna — itu SELALU menggantikan (bukan
+-- menambah) apa pun yang diset otomatis di sini.
 -- ---------------------------------------------------------------------
 create table if not exists user_companies (
   user_id uuid references profiles(id) on delete cascade,
@@ -332,9 +339,15 @@ alter table profiles enable row level security;
 alter table tickets enable row level security;
 alter table ticket_updates enable row level security;
 
--- Master data: bisa dibaca semua user yang sudah login
+-- Master data: bisa dibaca semua user yang sudah login. "companies"
+-- SENGAJA juga diizinkan untuk role "anon" (belum login) — dropdown
+-- "Perusahaan Default" di halaman Daftar diakses SEBELUM orang login,
+-- jadi request-nya memakai role anon, bukan authenticated. Nama-nama
+-- perusahaan bukan data sensitif, jadi aman dibuka untuk anon.
 drop policy if exists "read companies" on companies;
-create policy "read companies" on companies for select using (auth.role() = 'authenticated');
+create policy "read companies" on companies for select using (
+  auth.role() in ('authenticated', 'anon')
+);
 
 drop policy if exists "read categories" on categories;
 create policy "read categories" on categories for select using (auth.role() = 'authenticated');
@@ -440,6 +453,7 @@ set search_path = public
 as $$
 declare
   the_role text := coalesce(new.raw_user_meta_data ->> 'role', 'user');
+  the_default_company uuid := nullif(new.raw_user_meta_data ->> 'default_company_id', '')::uuid;
 begin
   insert into public.profiles (id, full_name, role, company_id, default_company_id)
   values (
@@ -447,16 +461,31 @@ begin
     coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
     the_role,
     nullif(new.raw_user_meta_data ->> 'company_id', '')::uuid,
-    nullif(new.raw_user_meta_data ->> 'default_company_id', '')::uuid
+    the_default_company
   )
   on conflict (id) do nothing;
 
-  -- Default akses: SEMUA perusahaan & SEMUA kategori. Super Admin bisa
-  -- mempersempit ini kapan pun lewat halaman Administrasi Pengguna.
-  insert into public.user_companies (user_id, company_id)
-  select new.id, c.id from public.companies c
-  on conflict do nothing;
+  -- Akses perusahaan awal: kalau user memilih "Perusahaan Default" saat
+  -- registrasi (mis. lewat form Daftar publik), itu jadi SATU-SATUNYA
+  -- perusahaan yang bisa dia lihat/pakai di form Buat Tiket — bukan
+  -- otomatis semua perusahaan. Kalau tidak ada pilihan default (mis.
+  -- akun dibuat Super Admin lewat "+ Tambah Pengguna", form itu tidak
+  -- meminta pilihan ini), fallback ke akses SEMUA perusahaan sebagai
+  -- default aman. Super Admin selalu bisa mengubah ini kapan pun lewat
+  -- "Kelola Akses" di Administrasi Pengguna — pengaturan itu SELALU
+  -- menggantikan (bukan menambah) apa pun yang diset di sini.
+  if the_default_company is not null then
+    insert into public.user_companies (user_id, company_id)
+    values (new.id, the_default_company)
+    on conflict do nothing;
+  else
+    insert into public.user_companies (user_id, company_id)
+    select new.id, c.id from public.companies c
+    on conflict do nothing;
+  end if;
 
+  -- Kategori: tetap default SEMUA kategori (tidak ada pilihan "kategori
+  -- saat registrasi", jadi tidak ada dasar untuk mempersempitnya di sini).
   insert into public.user_categories (user_id, category_id)
   select new.id, cat.id from public.categories cat
   on conflict do nothing;
