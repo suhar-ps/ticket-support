@@ -171,7 +171,7 @@ export default function Register() {
           </div>
 
           <div>
-            <label className="label" htmlFor="whatsappNumber">Nomor WhatsApp (opsional)</label>
+            <label className="label" htmlFor="whatsappNumber">Nomor WhatsApp (untuk keperluan notifikasi progress update)</label>
             <input
               id="whatsappNumber"
               className="input"

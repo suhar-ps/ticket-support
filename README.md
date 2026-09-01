@@ -283,12 +283,28 @@ Nomor WhatsApp harus diisi dalam **format internasional tanpa tanda "+"** (mis.
 Tambah/Edit Kontak otomatis membuang karakter selain angka, tapi kode negaranya (`62` untuk
 Indonesia) harus diisi manual, tidak otomatis dikonversi dari awalan `0`.
 
-**Nomor WhatsApp pengguna**: setiap akun punya kolom nomor WhatsApp sendiri (opsional, diisi
-saat Daftar atau lewat Administrasi Pengguna). Di menu Kontak Support, alih-alih mengetik
-Nama Kontak & Nomor WhatsApp secara manual, Super Admin bisa memilih **"Pilih dari Pengguna
-Terdaftar"** — nama & nomor WhatsApp langsung terisi otomatis dari data akun pengguna
-tersebut, sekali isi saat itu (bukan tautan permanen — kalau nomor WhatsApp pengguna itu
-berubah belakangan, kontak support tidak ikut berubah otomatis, perlu dipilih ulang).
+**Menautkan kontak ke akun pengguna terdaftar**: setiap akun punya kolom nomor WhatsApp
+sendiri (diisi saat Daftar atau lewat Administrasi Pengguna). Di menu Kontak Support, alih-
+alih mengetik Nama Kontak & Nomor WhatsApp secara manual, Super Admin bisa memilih dari
+**"Pilih dari Pengguna Terdaftar"** — hanya menampilkan akun dengan role **Tim Support,
+Supervisor, atau Super Admin** (bukan Pelapor). Memilih salah satu akan **menautkan** kontak
+tsb ke akun itu (badge "Tertaut" muncul di daftar) — nama & nomor yang ditampilkan/dipakai
+SELALU mengikuti data TERKINI di profil pengguna tersebut, otomatis, tanpa perlu diedit
+ulang kalau nomornya berubah nanti. Kontak yang tidak ditautkan (mis. 18 kontak awal yang
+sudah ada) tetap berupa nama & nomor manual seperti biasa.
+
+**Notifikasi WhatsApp saat progress tiket diperbarui** (bukan cuma saat tiket dibuat): begitu
+Support/Supervisor/Super Admin menyimpan perubahan di form "Perbarui Tiket" (ubah status,
+penugasan, atau catatan perbaikan), WhatsApp juga otomatis terbuka dengan pesan berisi status
+terbaru & catatan — dengan aturan penerima:
+- Kalau **nama pengguna yang login sama dengan nama pelapor tiket** (mis. Supervisor
+  mengelola tiket buatannya sendiri) → dikirim ke **PIC yang ditugaskan**.
+- Kalau **berbeda** (staf mengelola tiket milik orang lain — kasus paling umum) → dikirim ke
+  **pelapor**, sebagai notifikasi progress.
+
+Nomor yang dipakai diambil dari kolom Nomor WhatsApp di profil pelapor/PIC tsb (bukan dari
+Kontak Support) — kalau pihak yang dituju belum punya nomor WhatsApp tercatat, aplikasi
+diam-diam tidak membuka WhatsApp (perubahan tetap tersimpan normal).
 
 ## 10. Catatan Keamanan untuk Produksi
 

@@ -3,7 +3,8 @@ import { supabase } from '../lib/supabaseClient'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { normalizeWhatsappNumber, WHATSAPP_FORMAT_HINT } from '../lib/whatsapp'
 
-const EMPTY_FORM = { companyId: '', categoryId: '', contactName: '', whatsappNumber: '' }
+const EMPTY_FORM = { companyId: '', categoryId: '', contactUserId: '', contactName: '', whatsappNumber: '' }
+const CONTACT_ROLES = ['support', 'supervisor', 'superadmin']
 
 export default function SupportContacts() {
   const [contacts, setContacts] = useState([])
@@ -30,7 +31,9 @@ export default function SupportContacts() {
     const [{ data, error }, { data: companyData }, { data: categoryData }, { data: userData }] = await Promise.all([
       supabase
         .from('support_contacts')
-        .select('id, company_id, category_id, contact_name, whatsapp_number, companies(name), categories(name)')
+        .select(
+          'id, company_id, category_id, contact_user_id, contact_name, whatsapp_number, companies(name), categories(name), linked_user:profiles(full_name, whatsapp_number)'
+        )
         .order('created_at', { ascending: false }),
       supabase.from('companies').select('id, name').order('name'),
       supabase.from('categories').select('id, name').order('name'),
@@ -43,7 +46,14 @@ export default function SupportContacts() {
     }
     setCompanies(companyData || [])
     setCategories(categoryData || [])
-    setUsers([...(userData || [])].sort((a, b) => a.full_name.localeCompare(b.full_name)))
+    // Hanya Support/Supervisor/Super Admin yang muncul di dropdown "Pilih
+    // dari Pengguna Terdaftar" — merekalah yang berperan sebagai
+    // penanggung jawab tiket, bukan Pelapor.
+    setUsers(
+      (userData || [])
+        .filter((u) => CONTACT_ROLES.includes(u.role))
+        .sort((a, b) => a.full_name.localeCompare(b.full_name))
+    )
     setLoading(false)
   }
 
@@ -60,7 +70,11 @@ export default function SupportContacts() {
     if (!userId) return
     const u = users.find((x) => x.id === userId)
     if (!u) return
-    setter((f) => ({ ...f, contactName: u.full_name, whatsappNumber: u.whatsapp_number || '' }))
+    setter((f) => ({ ...f, contactUserId: u.id, contactName: u.full_name, whatsappNumber: u.whatsapp_number || '' }))
+  }
+
+  function unlinkUser(setter) {
+    setter((f) => ({ ...f, contactUserId: '' }))
   }
 
   async function handleAdd(e) {
@@ -77,6 +91,7 @@ export default function SupportContacts() {
     const { error } = await supabase.from('support_contacts').insert({
       company_id: form.companyId,
       category_id: form.categoryId,
+      contact_user_id: form.contactUserId || null,
       contact_name: form.contactName.trim() || null,
       whatsapp_number: number,
     })
@@ -101,6 +116,7 @@ export default function SupportContacts() {
     setEditForm({
       companyId: c.company_id,
       categoryId: c.category_id,
+      contactUserId: c.contact_user_id || '',
       contactName: c.contact_name || '',
       whatsappNumber: c.whatsapp_number,
     })
@@ -122,7 +138,11 @@ export default function SupportContacts() {
     setRowError('')
     const { error } = await supabase
       .from('support_contacts')
-      .update({ contact_name: editForm.contactName.trim() || null, whatsapp_number: number })
+      .update({
+        contact_user_id: editForm.contactUserId || null,
+        contact_name: editForm.contactName.trim() || null,
+        whatsapp_number: number,
+      })
       .eq('id', id)
     setRowPendingId(null)
     if (error) {
@@ -207,11 +227,11 @@ export default function SupportContacts() {
               </select>
             </div>
             <div className="sm:col-span-2">
-              <label className="label" htmlFor="addFromUser">Pilih dari Pengguna Terdaftar (opsional)</label>
+              <label className="label" htmlFor="addFromUser">Pilih dari Pengguna Terdaftar</label>
               <select
                 id="addFromUser"
                 className="input"
-                value=""
+                value={form.contactUserId}
                 onChange={(e) => applyUserToForm(setForm, e.target.value)}
               >
                 <option value="">— Ketik manual, atau pilih pengguna di sini —</option>
@@ -220,12 +240,25 @@ export default function SupportContacts() {
                 ))}
               </select>
               <p className="mt-1.5 text-xs text-ink-light">
-                Memilih pengguna otomatis mengisi Nama Kontak & Nomor WhatsApp di bawah sesuai
-                data pengguna tsb — tetap bisa diubah manual setelahnya.
+                Hanya menampilkan pengguna dengan role Tim Support, Supervisor, atau Super
+                Admin. Memilih pengguna menautkan kontak ini ke akunnya — nama & nomor
+                WhatsApp akan selalu mengikuti data terkini di profil pengguna tsb.
+                {form.contactUserId && (
+                  <>
+                    {' '}
+                    <button
+                      type="button"
+                      onClick={() => unlinkUser(setForm)}
+                      className="font-medium text-brand-600 hover:text-brand-700"
+                    >
+                      Batalkan tautan
+                    </button>
+                  </>
+                )}
               </p>
             </div>
             <div>
-              <label className="label" htmlFor="addName">Nama Kontak (opsional)</label>
+              <label className="label" htmlFor="addName">Nama Kontak</label>
               <input
                 id="addName"
                 className="input"
@@ -290,10 +323,10 @@ export default function SupportContacts() {
                           <div className="space-y-1.5">
                             <select
                               className="input !py-1.5 !text-xs"
-                              value=""
+                              value={editForm.contactUserId}
                               onChange={(e) => applyUserToForm(setEditForm, e.target.value)}
                             >
-                              <option value="">— Isi dari pengguna terdaftar —</option>
+                              <option value="">— Kontak manual —</option>
                               {users.map((u) => (
                                 <option key={u.id} value={u.id}>{u.full_name}</option>
                               ))}
@@ -304,6 +337,13 @@ export default function SupportContacts() {
                               onChange={(e) => setEditForm((f) => ({ ...f, contactName: e.target.value }))}
                             />
                           </div>
+                        ) : c.contact_user_id ? (
+                          <>
+                            {c.linked_user?.full_name || c.contact_name}
+                            <span className="ml-1.5 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-600">
+                              Tertaut
+                            </span>
+                          </>
                         ) : (
                           c.contact_name || <span className="text-ink-light">—</span>
                         )}
@@ -316,7 +356,7 @@ export default function SupportContacts() {
                             onChange={(e) => setEditForm((f) => ({ ...f, whatsappNumber: e.target.value }))}
                           />
                         ) : (
-                          c.whatsapp_number
+                          (c.contact_user_id && c.linked_user?.whatsapp_number) || c.whatsapp_number
                         )}
                       </td>
                       <td className="px-5 py-3">

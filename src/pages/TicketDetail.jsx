@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import StatusBadge from '../components/StatusBadge'
 import PriorityBadge from '../components/PriorityBadge'
 import LoadingSpinner from '../components/LoadingSpinner'
-import { STATUSES, formatDateTime } from '../data/constants'
+import { STATUSES, formatDateTime, labelFor } from '../data/constants'
 
 export default function TicketDetail() {
   const { id } = useParams()
@@ -43,7 +43,7 @@ export default function TicketDetail() {
     const { data: ticketData, error: ticketError } = await supabase
       .from('tickets')
       .select(
-        '*, categories(name), companies(name), reporter:profiles!tickets_created_by_fkey(full_name), assignee:profiles!tickets_assigned_to_fkey(full_name)'
+        '*, categories(name), companies(name), reporter:profiles!tickets_created_by_fkey(full_name, whatsapp_number), assignee:profiles!tickets_assigned_to_fkey(full_name, whatsapp_number)'
       )
       .eq('id', id)
       .single()
@@ -51,7 +51,7 @@ export default function TicketDetail() {
     if (ticketError) {
       setError('Tiket tidak ditemukan atau Anda tidak memiliki akses.')
       setLoading(false)
-      return
+      return null
     }
 
     setTicket(ticketData)
@@ -66,6 +66,7 @@ export default function TicketDetail() {
     setUpdates(updatesData || [])
 
     setLoading(false)
+    return ticketData
   }, [id])
 
   useEffect(() => { load() }, [load])
@@ -85,6 +86,13 @@ export default function TicketDetail() {
     setSaving(true)
     setError('')
 
+    // Buka tab kosong SEKARANG JUGA — langsung sebagai respons klik
+    // pengguna (sinkron), supaya tidak diblokir pop-up blocker browser.
+    // Diarahkan ke WhatsApp belakangan setelah perubahan tersimpan &
+    // penerima yang tepat ditentukan — atau ditutup lagi kalau ternyata
+    // tidak ada nomor WhatsApp yang bisa dituju.
+    const waWindow = window.open('', '_blank')
+
     const statusChanged = statusDraft !== ticket.status
     const { error: updateError } = await supabase
       .from('tickets')
@@ -97,6 +105,7 @@ export default function TicketDetail() {
     if (updateError) {
       setSaving(false)
       setError(updateError.message)
+      if (waWindow) waWindow.close()
       return
     }
 
@@ -110,9 +119,41 @@ export default function TicketDetail() {
       })
     }
 
+    const savedNote = note.trim()
     setNote('')
+
+    const freshTicket = await load()
+
+    // Siapa yang dikirimi notifikasi WhatsApp:
+    // - Kalau nama pengguna yang login SAMA dengan nama pelapor tiket
+    //   ini (mis. Supervisor mengelola tiket buatannya sendiri lewat
+    //   Antrian Support) → kirim ke PIC yang ditugaskan.
+    // - Kalau BERBEDA (staf mengelola tiket milik orang lain, kasus
+    //   paling umum) → kirim ke pelapor, sebagai notifikasi progress.
+    const isSelfReporter =
+      !!profile?.full_name && profile.full_name === freshTicket?.reporter?.full_name
+    const target = isSelfReporter ? freshTicket?.assignee : freshTicket?.reporter
+    const targetNumber = target?.whatsapp_number
+
+    if (targetNumber && waWindow && freshTicket) {
+      const message = [
+        `*Update Tiket: ${freshTicket.ticket_number}*`,
+        `Judul: ${freshTicket.title}`,
+        `Perusahaan: ${freshTicket.companies?.name || ''}`,
+        `Status: ${labelFor(STATUSES, freshTicket.status)}`,
+        savedNote ? `Catatan: ${savedNote}` : null,
+        '',
+        `Lihat detail: ${window.location.origin}/tickets/${freshTicket.id}`,
+      ]
+        .filter(Boolean)
+        .join('\n')
+
+      waWindow.location.href = `https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`
+    } else if (waWindow) {
+      waWindow.close()
+    }
+
     setSaving(false)
-    await load()
   }
 
   async function handleAddComment(e) {
@@ -262,6 +303,11 @@ export default function TicketDetail() {
               />
             </div>
             {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+            <p className="mt-3 text-xs text-ink-light">
+              Setelah tersimpan, WhatsApp mungkin terbuka otomatis di tab baru ke pelapor (atau
+              ke PIC kalau Anda sendiri pelapornya) dengan pesan sudah terisi — tinggal periksa
+              &amp; klik Kirim di sana.
+            </p>
             <div className="mt-4 flex justify-end">
               <button type="submit" disabled={saving} className="btn-primary">
                 {saving ? 'Menyimpan...' : 'Simpan Perubahan'}

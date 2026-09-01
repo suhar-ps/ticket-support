@@ -334,7 +334,7 @@ export default function UserAdministration() {
               </select>
             </div>
             <div>
-              <label className="label" htmlFor="newWhatsapp">Nomor WhatsApp (opsional)</label>
+              <label className="label" htmlFor="newWhatsapp">Nomor WhatsApp (untuk keperluan notifikasi progress update)</label>
               <input
                 id="newWhatsapp"
                 className="input"

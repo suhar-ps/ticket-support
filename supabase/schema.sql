@@ -192,11 +192,16 @@ create table if not exists support_contacts (
   id uuid primary key default uuid_generate_v4(),
   company_id uuid references companies(id) on delete cascade not null,
   category_id uuid references categories(id) on delete cascade not null,
+  contact_user_id uuid references profiles(id) on delete set null,
   contact_name text,
   whatsapp_number text not null,
   created_at timestamptz default now(),
   unique (company_id, category_id)
 );
+
+-- Untuk database yang sudah lebih dulu ada (kolom ini ditambahkan
+-- belakangan) — aman dijalankan ulang.
+alter table support_contacts add column if not exists contact_user_id uuid references profiles(id) on delete set null;
 
 alter table support_contacts enable row level security;
 -- Kebijakan RLS-nya, fungsi lookup, dan seed data dipasang belakangan
@@ -361,6 +366,13 @@ create policy "superadmin manage support contacts" on support_contacts for all u
 -- Mengembalikan NULL kalau tidak ada kontak yang cocok untuk kombinasi
 -- perusahaan+kategori tsb — frontend menangani ini dengan diam-diam
 -- tidak membuka WhatsApp (tidak menggagalkan pembuatan tiket).
+--
+-- Kalau kontaknya ditautkan ke pengguna terdaftar (contact_user_id),
+-- nomor yang dipakai adalah nomor WhatsApp TERKINI di profil pengguna
+-- itu (bukan salinan lama) — supaya kalau nomornya berubah, kontak
+-- support otomatis ikut ter-update tanpa perlu diedit manual. Kalau
+-- profil itu kebetulan belum punya nomor, fallback ke whatsapp_number
+-- yang tersimpan di support_contacts.
 create or replace function public.get_support_whatsapp(p_company_id uuid, p_category_id uuid)
 returns text
 language sql
@@ -368,8 +380,10 @@ security definer
 set search_path = public
 stable
 as $$
-  select whatsapp_number from public.support_contacts
-  where company_id = p_company_id and category_id = p_category_id
+  select coalesce(p.whatsapp_number, sc.whatsapp_number)
+  from public.support_contacts sc
+  left join public.profiles p on p.id = sc.contact_user_id
+  where sc.company_id = p_company_id and sc.category_id = p_category_id
   limit 1;
 $$;
 
