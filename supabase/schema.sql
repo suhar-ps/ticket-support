@@ -73,12 +73,14 @@ create table if not exists profiles (
   company_id uuid references companies(id),
   default_company_id uuid references companies(id),
   phone text,
+  whatsapp_number text,
   created_at timestamptz default now()
 );
 
 -- Untuk database yang sudah lebih dulu ada (kolom ini ditambahkan
 -- belakangan) — aman dijalankan ulang.
 alter table profiles add column if not exists default_company_id uuid references companies(id);
+alter table profiles add column if not exists whatsapp_number text;
 
 -- Pastikan RLS tidak "dipaksakan" ke pemilik tabel (default Postgres
 -- memang begini, baris ini hanya menjamin eksplisit).
@@ -290,6 +292,10 @@ drop policy if exists "support update tickets" on tickets;
 drop policy if exists "staff update tickets" on tickets;
 drop policy if exists "insert ticket update" on ticket_updates;
 drop policy if exists "read ticket updates" on ticket_updates;
+-- Kebijakan support_contacts JUGA memakai current_user_role() lewat
+-- can_access_ticket_scope()/langsung — harus ikut dihapus di sini juga,
+-- sebelum fungsinya di-drop di bawah (lihat catatan di bawah).
+drop policy if exists "superadmin manage support contacts" on support_contacts;
 -- can_access_ticket_scope() dijamin di-drop DULU, sebelum current_user_role()
 -- di bawahnya — karena can_access_ticket_scope() bertipe "language sql"
 -- (bukan plpgsql), fungsi jenis ini SECARA OTOMATIS dicatat Postgres
@@ -297,6 +303,12 @@ drop policy if exists "read ticket updates" on ticket_updates;
 -- dalam isinya (current_user_role()), tidak seperti plpgsql yang isinya
 -- opaque. Tanpa urutan ini, drop current_user_role() di re-run kedua
 -- akan gagal dengan error dependency yang sama seperti sebelumnya.
+--
+-- ATURAN UMUM (supaya tidak terulang lagi ke depannya): SETIAP kali ada
+-- policy atau fungsi "language sql" baru yang memanggil
+-- current_user_role() di dalam definisinya, tambahkan juga drop-nya di
+-- blok ini, SEBELUM baris "drop function ... current_user_role()" di
+-- bawah — bukan cuma di dekat definisi ulangnya nanti.
 drop function if exists public.can_access_ticket_scope(uuid, uuid);
 drop function if exists public.current_user_role();
 
@@ -545,13 +557,14 @@ declare
   the_role text := coalesce(new.raw_user_meta_data ->> 'role', 'user');
   the_default_company uuid := nullif(new.raw_user_meta_data ->> 'default_company_id', '')::uuid;
 begin
-  insert into public.profiles (id, full_name, role, company_id, default_company_id)
+  insert into public.profiles (id, full_name, role, company_id, default_company_id, whatsapp_number)
   values (
     new.id,
     coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
     the_role,
     nullif(new.raw_user_meta_data ->> 'company_id', '')::uuid,
-    the_default_company
+    the_default_company,
+    nullif(new.raw_user_meta_data ->> 'whatsapp_number', '')
   )
   on conflict (id) do nothing;
 
@@ -699,6 +712,7 @@ returns table (
   email text,
   full_name text,
   role text,
+  whatsapp_number text,
   created_at timestamptz,
   company_ids uuid[],
   category_ids uuid[]
@@ -718,6 +732,7 @@ begin
       u.email::text,
       p.full_name,
       p.role,
+      p.whatsapp_number,
       p.created_at,
       coalesce(
         (select array_agg(uc.company_id) from public.user_companies uc where uc.user_id = p.id),
@@ -736,9 +751,14 @@ $$;
 grant execute on function public.list_users_for_admin() to authenticated;
 
 -- ---------------------------------------------------------------------
--- FUNGSI ADMIN: ubah nama lengkap seorang pengguna.
+-- FUNGSI ADMIN: ubah nama lengkap & nomor WhatsApp seorang pengguna.
 -- ---------------------------------------------------------------------
-create or replace function public.admin_update_profile(target_user_id uuid, new_full_name text)
+drop function if exists public.admin_update_profile(uuid, text);
+create or replace function public.admin_update_profile(
+  target_user_id uuid,
+  new_full_name text,
+  new_whatsapp_number text default null
+)
 returns void
 language plpgsql
 security definer
@@ -753,11 +773,16 @@ begin
     raise exception 'Nama lengkap tidak boleh kosong.';
   end if;
 
-  update public.profiles set full_name = trim(new_full_name) where id = target_user_id;
+  update public.profiles
+  set
+    full_name = trim(new_full_name),
+    whatsapp_number = nullif(trim(coalesce(new_whatsapp_number, '')), '')
+  where id = target_user_id;
 end;
 $$;
 
-grant execute on function public.admin_update_profile(uuid, text) to authenticated;
+grant execute on function public.admin_update_profile(uuid, text, text) to authenticated;
+
 
 -- ---------------------------------------------------------------------
 -- FUNGSI ADMIN: hapus akun pengguna sepenuhnya (auth.users + profiles,

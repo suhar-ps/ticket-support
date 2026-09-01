@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import LoadingSpinner from '../components/LoadingSpinner'
+import { normalizeWhatsappNumber, WHATSAPP_FORMAT_HINT } from '../lib/whatsapp'
 
 const EMPTY_FORM = { companyId: '', categoryId: '', contactName: '', whatsappNumber: '' }
-
-function normalizeNumber(raw) {
-  return (raw || '').replace(/\D/g, '')
-}
 
 export default function SupportContacts() {
   const [contacts, setContacts] = useState([])
   const [companies, setCompanies] = useState([])
   const [categories, setCategories] = useState([])
+  const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState('')
 
@@ -29,13 +27,14 @@ export default function SupportContacts() {
   async function load() {
     setLoading(true)
     setListError('')
-    const [{ data, error }, { data: companyData }, { data: categoryData }] = await Promise.all([
+    const [{ data, error }, { data: companyData }, { data: categoryData }, { data: userData }] = await Promise.all([
       supabase
         .from('support_contacts')
         .select('id, company_id, category_id, contact_name, whatsapp_number, companies(name), categories(name)')
         .order('created_at', { ascending: false }),
       supabase.from('companies').select('id, name').order('name'),
       supabase.from('categories').select('id, name').order('name'),
+      supabase.rpc('list_users_for_admin'),
     ])
     if (error) {
       setListError(error.message)
@@ -44,6 +43,7 @@ export default function SupportContacts() {
     }
     setCompanies(companyData || [])
     setCategories(categoryData || [])
+    setUsers([...(userData || [])].sort((a, b) => a.full_name.localeCompare(b.full_name)))
     setLoading(false)
   }
 
@@ -56,11 +56,18 @@ export default function SupportContacts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companies, categories])
 
+  function applyUserToForm(setter, userId) {
+    if (!userId) return
+    const u = users.find((x) => x.id === userId)
+    if (!u) return
+    setter((f) => ({ ...f, contactName: u.full_name, whatsappNumber: u.whatsapp_number || '' }))
+  }
+
   async function handleAdd(e) {
     e.preventDefault()
     setAddError('')
 
-    const number = normalizeNumber(form.whatsappNumber)
+    const number = normalizeWhatsappNumber(form.whatsappNumber)
     if (!number) {
       setAddError('Nomor WhatsApp wajib diisi.')
       return
@@ -106,7 +113,7 @@ export default function SupportContacts() {
   }
 
   async function saveEdit(id) {
-    const number = normalizeNumber(editForm.whatsappNumber)
+    const number = normalizeWhatsappNumber(editForm.whatsappNumber)
     if (!number) {
       setRowError('Nomor WhatsApp wajib diisi.')
       return
@@ -199,6 +206,24 @@ export default function SupportContacts() {
                 {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
+            <div className="sm:col-span-2">
+              <label className="label" htmlFor="addFromUser">Pilih dari Pengguna Terdaftar (opsional)</label>
+              <select
+                id="addFromUser"
+                className="input"
+                value=""
+                onChange={(e) => applyUserToForm(setForm, e.target.value)}
+              >
+                <option value="">— Ketik manual, atau pilih pengguna di sini —</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-xs text-ink-light">
+                Memilih pengguna otomatis mengisi Nama Kontak & Nomor WhatsApp di bawah sesuai
+                data pengguna tsb — tetap bisa diubah manual setelahnya.
+              </p>
+            </div>
             <div>
               <label className="label" htmlFor="addName">Nama Kontak (opsional)</label>
               <input
@@ -214,10 +239,11 @@ export default function SupportContacts() {
               <input
                 id="addNumber"
                 className="input"
-                placeholder="cth. 6281234567890 (format internasional, tanpa +)"
+                placeholder="cth. 6281234567890"
                 value={form.whatsappNumber}
                 onChange={(e) => setForm((f) => ({ ...f, whatsappNumber: e.target.value }))}
               />
+              <p className="mt-1.5 text-xs text-ink-light">{WHATSAPP_FORMAT_HINT}</p>
             </div>
           </div>
 
@@ -261,11 +287,23 @@ export default function SupportContacts() {
                       <td className="px-5 py-3 text-ink-light">{c.categories?.name}</td>
                       <td className="px-5 py-3 text-ink">
                         {isEditing ? (
-                          <input
-                            className="input !py-1.5 !text-sm"
-                            value={editForm.contactName}
-                            onChange={(e) => setEditForm((f) => ({ ...f, contactName: e.target.value }))}
-                          />
+                          <div className="space-y-1.5">
+                            <select
+                              className="input !py-1.5 !text-xs"
+                              value=""
+                              onChange={(e) => applyUserToForm(setEditForm, e.target.value)}
+                            >
+                              <option value="">— Isi dari pengguna terdaftar —</option>
+                              {users.map((u) => (
+                                <option key={u.id} value={u.id}>{u.full_name}</option>
+                              ))}
+                            </select>
+                            <input
+                              className="input !py-1.5 !text-sm"
+                              value={editForm.contactName}
+                              onChange={(e) => setEditForm((f) => ({ ...f, contactName: e.target.value }))}
+                            />
+                          </div>
                         ) : (
                           c.contact_name || <span className="text-ink-light">—</span>
                         )}

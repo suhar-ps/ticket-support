@@ -3,9 +3,10 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { ROLE_LABELS, formatDateTime } from '../data/constants'
+import { normalizeWhatsappNumber, WHATSAPP_FORMAT_HINT } from '../lib/whatsapp'
 
 const ROLE_ORDER = ['user', 'support', 'supervisor', 'superadmin']
-const EMPTY_NEW_USER = { fullName: '', email: '', password: '', role: 'user' }
+const EMPTY_NEW_USER = { fullName: '', email: '', password: '', role: 'user', whatsappNumber: '' }
 
 function describeFunctionError(message) {
   if (!message) return ''
@@ -35,6 +36,7 @@ export default function UserAdministration() {
   const [activeId, setActiveId] = useState(null)
   const [activeMode, setActiveMode] = useState(null) // 'edit' | 'password' | 'delete' | 'access'
   const [editValue, setEditValue] = useState('')
+  const [editWhatsapp, setEditWhatsapp] = useState('')
   const [passwordValue, setPasswordValue] = useState('')
   const [companyIdsDraft, setCompanyIdsDraft] = useState([])
   const [categoryIdsDraft, setCategoryIdsDraft] = useState([])
@@ -84,6 +86,7 @@ export default function UserAdministration() {
     setActiveId(null)
     setActiveMode(null)
     setEditValue('')
+    setEditWhatsapp('')
     setPasswordValue('')
     setCompanyIdsDraft([])
     setCategoryIdsDraft([])
@@ -107,6 +110,7 @@ export default function UserAdministration() {
         password: newUser.password,
         full_name: newUser.fullName,
         role: newUser.role,
+        whatsapp_number: normalizeWhatsappNumber(newUser.whatsappNumber),
       },
     })
     setAddLoading(false)
@@ -144,6 +148,7 @@ export default function UserAdministration() {
     setActiveId(u.id)
     setActiveMode('edit')
     setEditValue(u.full_name)
+    setEditWhatsapp(u.whatsapp_number || '')
     setRowError('')
   }
 
@@ -154,16 +159,22 @@ export default function UserAdministration() {
     }
     setRowPendingId(targetId)
     setRowError('')
+    const normalizedWhatsapp = normalizeWhatsappNumber(editWhatsapp)
     const { error } = await supabase.rpc('admin_update_profile', {
       target_user_id: targetId,
       new_full_name: editValue.trim(),
+      new_whatsapp_number: normalizedWhatsapp || null,
     })
     setRowPendingId(null)
     if (error) {
       setRowError(error.message)
       return
     }
-    setUsers((prev) => prev.map((u) => (u.id === targetId ? { ...u, full_name: editValue.trim() } : u)))
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === targetId ? { ...u, full_name: editValue.trim(), whatsapp_number: normalizedWhatsapp || null } : u
+      )
+    )
     resetRowState()
     flashSuccess(targetId)
   }
@@ -322,7 +333,19 @@ export default function UserAdministration() {
                 ))}
               </select>
             </div>
+            <div>
+              <label className="label" htmlFor="newWhatsapp">Nomor WhatsApp (opsional)</label>
+              <input
+                id="newWhatsapp"
+                className="input"
+                placeholder="cth. 6281234567890"
+                value={newUser.whatsappNumber}
+                onChange={(e) => setNewUser((f) => ({ ...f, whatsappNumber: e.target.value }))}
+              />
+            </div>
           </div>
+
+          <p className="text-xs text-ink-light">{WHATSAPP_FORMAT_HINT}</p>
 
           {addError && (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{addError}</p>
@@ -373,6 +396,7 @@ export default function UserAdministration() {
                 <tr>
                   <th className="px-5 py-3 font-semibold">Nama</th>
                   <th className="px-5 py-3 font-semibold">Email</th>
+                  <th className="px-5 py-3 font-semibold">WhatsApp</th>
                   <th className="px-5 py-3 font-semibold">Terdaftar</th>
                   <th className="px-5 py-3 font-semibold">Role</th>
                   <th className="px-5 py-3 font-semibold">Aksi</th>
@@ -407,6 +431,18 @@ export default function UserAdministration() {
                         )}
                       </td>
                       <td className="px-5 py-3 text-ink-light">{u.email}</td>
+                      <td className="px-5 py-3 font-mono text-xs text-ink-light">
+                        {isActive && activeMode === 'edit' ? (
+                          <input
+                            className="input !py-1.5 !text-sm"
+                            placeholder="6281234567890"
+                            value={editWhatsapp}
+                            onChange={(e) => setEditWhatsapp(e.target.value)}
+                          />
+                        ) : (
+                          u.whatsapp_number || <span className="text-gray-400">—</span>
+                        )}
+                      </td>
                       <td className="whitespace-nowrap px-5 py-3 text-ink-light">{formatDateTime(u.created_at)}</td>
                       <td className="px-5 py-3">
                         <select
@@ -496,7 +532,7 @@ export default function UserAdministration() {
                     </tr>
                     {isActive && activeMode === 'access' && (
                       <tr className="bg-brand-50/30">
-                        <td colSpan={5} className="px-5 py-4">
+                        <td colSpan={6} className="px-5 py-4">
                           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                             <div>
                               <div className="mb-2 flex items-center justify-between">

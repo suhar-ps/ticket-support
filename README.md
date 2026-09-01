@@ -283,6 +283,13 @@ Nomor WhatsApp harus diisi dalam **format internasional tanpa tanda "+"** (mis.
 Tambah/Edit Kontak otomatis membuang karakter selain angka, tapi kode negaranya (`62` untuk
 Indonesia) harus diisi manual, tidak otomatis dikonversi dari awalan `0`.
 
+**Nomor WhatsApp pengguna**: setiap akun punya kolom nomor WhatsApp sendiri (opsional, diisi
+saat Daftar atau lewat Administrasi Pengguna). Di menu Kontak Support, alih-alih mengetik
+Nama Kontak & Nomor WhatsApp secara manual, Super Admin bisa memilih **"Pilih dari Pengguna
+Terdaftar"** — nama & nomor WhatsApp langsung terisi otomatis dari data akun pengguna
+tersebut, sekali isi saat itu (bukan tautan permanen — kalau nomor WhatsApp pengguna itu
+berubah belakangan, kontak support tidak ikut berubah otomatis, perlu dipilih ulang).
+
 ## 10. Catatan Keamanan untuk Produksi
 
 - Aktifkan **Confirm email** di Supabase agar alamat email pelapor terverifikasi.

@@ -83,6 +83,7 @@ Deno.serve(async (req) => {
     const password = body.password || ''
     const fullName = (body.full_name || '').trim()
     const role = ['user', 'support', 'supervisor', 'superadmin'].includes(body.role) ? body.role : 'user'
+    const whatsappNumber = (body.whatsapp_number || '').replace(/\D/g, '') || null
 
     if (!email || !password || !fullName) {
       return jsonResponse({ error: 'Email, kata sandi, dan nama lengkap wajib diisi.' }, 400)
@@ -95,7 +96,7 @@ Deno.serve(async (req) => {
       email,
       password,
       email_confirm: true, // akun dibuat admin, langsung dianggap terverifikasi
-      user_metadata: { full_name: fullName, role },
+      user_metadata: { full_name: fullName, role, whatsapp_number: whatsappNumber },
     })
 
     if (createError) {

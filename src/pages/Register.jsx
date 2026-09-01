@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
+import { normalizeWhatsappNumber, WHATSAPP_FORMAT_HINT } from '../lib/whatsapp'
 
 // Role awal SELALU 'user' — pendaftaran publik tidak pernah membuat
 // akun Support/Supervisor. Kenaikan role hanya dilakukan oleh
@@ -15,6 +16,7 @@ export default function Register() {
     email: '',
     password: '',
     defaultCompanyId: '',
+    whatsappNumber: '',
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -57,6 +59,7 @@ export default function Register() {
           full_name: form.fullName,
           role: DEFAULT_ROLE,
           default_company_id: form.defaultCompanyId || null,
+          whatsapp_number: normalizeWhatsappNumber(form.whatsappNumber) || null,
         },
       },
     })
@@ -85,6 +88,7 @@ export default function Register() {
           full_name: form.fullName,
           role: DEFAULT_ROLE,
           default_company_id: form.defaultCompanyId || null,
+          whatsapp_number: normalizeWhatsappNumber(form.whatsappNumber) || null,
         },
         { onConflict: 'id' }
       )
@@ -164,6 +168,18 @@ export default function Register() {
               Dipakai untuk mengisi otomatis pilihan perusahaan saat Anda membuat tiket —
               bisa diubah kapan pun nanti.
             </p>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="whatsappNumber">Nomor WhatsApp (opsional)</label>
+            <input
+              id="whatsappNumber"
+              className="input"
+              placeholder="cth. 6281234567890"
+              value={form.whatsappNumber}
+              onChange={(e) => update('whatsappNumber', e.target.value)}
+            />
+            <p className="mt-1.5 text-xs text-ink-light">{WHATSAPP_FORMAT_HINT}</p>
           </div>
 
           {error && (
