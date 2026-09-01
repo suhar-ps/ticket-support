@@ -464,6 +464,25 @@ create policy "staff read all profiles" on profiles for select using (
   public.jwt_role() in ('support', 'supervisor', 'superadmin')
 );
 
+-- PERBAIKAN BUG: sebelumnya Pelapor tidak bisa melihat nama PIC yang
+-- ditugaskan ke tiketnya sendiri, karena kebijakan di atas hanya
+-- mengizinkan membaca profil sendiri atau (kalau staf) semua profil.
+-- Query detail tiket melakukan JOIN ke profiles untuk data PIC
+-- (assignee), dan PostgREST diam-diam mengembalikan null untuk relasi
+-- itu kalau baris terkait tidak boleh dibaca — bukan error di seluruh
+-- query — sehingga "Ditugaskan ke" selalu tampil "Belum ditugaskan" bagi
+-- Pelapor walau sebenarnya sudah ada PIC-nya. Kebijakan ini mengizinkan
+-- siapa pun membaca profil orang yang ditugaskan ke tiket MILIKNYA
+-- SENDIRI (dicek lewat tabel tickets, bukan profiles, jadi tidak
+-- berisiko rekursi).
+drop policy if exists "read assignee of own ticket" on profiles;
+create policy "read assignee of own ticket" on profiles for select using (
+  exists (
+    select 1 from tickets t
+    where t.assigned_to = profiles.id and t.created_by = auth.uid()
+  )
+);
+
 drop policy if exists "insert own profile" on profiles;
 create policy "insert own profile" on profiles for insert with check (auth.uid() = id);
 

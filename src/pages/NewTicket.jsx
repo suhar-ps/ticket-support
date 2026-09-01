@@ -119,6 +119,7 @@ export default function NewTicket() {
         `*Tiket Baru: ${data.ticket_number}*`,
         `Judul: ${data.title}`,
         `Perusahaan: ${companyName}`,
+        `Pelapor: ${profile?.full_name || '—'}`,
         `Prioritas: ${labelFor(PRIORITIES, data.priority)}`,
         '',
         'Deskripsi:',

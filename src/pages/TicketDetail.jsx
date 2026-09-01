@@ -81,6 +81,34 @@ export default function TicketDetail() {
     }
   }, [showManagementForm])
 
+  // Menentukan siapa yang dikirimi notifikasi WhatsApp:
+  // - Kalau nama pengguna yang login SAMA dengan nama pelapor tiket ini
+  //   (mis. Supervisor mengelola tiket buatannya sendiri lewat Antrian
+  //   Support) → PIC yang ditugaskan.
+  // - Kalau BERBEDA (staf mengelola tiket milik orang lain, kasus
+  //   paling umum) → pelapor, sebagai notifikasi progress.
+  function resolveWhatsappTarget(ticketData) {
+    const isSelfReporter =
+      !!profile?.full_name && profile.full_name === ticketData?.reporter?.full_name
+    return isSelfReporter ? ticketData?.assignee : ticketData?.reporter
+  }
+
+  function buildWhatsappMessage(ticketData, noteText) {
+    return [
+      `*Update Tiket: ${ticketData.ticket_number}*`,
+      `Judul: ${ticketData.title}`,
+      `Perusahaan: ${ticketData.companies?.name || ''}`,
+      `Pelapor: ${ticketData.reporter?.full_name || '—'}`,
+      `Ditugaskan ke: ${ticketData.assignee?.full_name || 'Belum ditugaskan'}`,
+      `Status: ${labelFor(STATUSES, ticketData.status)}`,
+      noteText ? `Catatan: ${noteText}` : null,
+      '',
+      `Lihat detail: ${window.location.origin}/tickets/${ticketData.id}`,
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
+
   async function handleSupportSave(e) {
     e.preventDefault()
     setSaving(true)
@@ -124,38 +152,37 @@ export default function TicketDetail() {
 
     const freshTicket = await load()
 
-    // Siapa yang dikirimi notifikasi WhatsApp:
-    // - Kalau nama pengguna yang login SAMA dengan nama pelapor tiket
-    //   ini (mis. Supervisor mengelola tiket buatannya sendiri lewat
-    //   Antrian Support) → kirim ke PIC yang ditugaskan.
-    // - Kalau BERBEDA (staf mengelola tiket milik orang lain, kasus
-    //   paling umum) → kirim ke pelapor, sebagai notifikasi progress.
-    const isSelfReporter =
-      !!profile?.full_name && profile.full_name === freshTicket?.reporter?.full_name
-    const target = isSelfReporter ? freshTicket?.assignee : freshTicket?.reporter
+    const target = resolveWhatsappTarget(freshTicket)
     const targetNumber = target?.whatsapp_number
 
     if (targetNumber && waWindow && freshTicket) {
-      const message = [
-        `*Update Tiket: ${freshTicket.ticket_number}*`,
-        `Judul: ${freshTicket.title}`,
-        `Perusahaan: ${freshTicket.companies?.name || ''}`,
-        `Pelapor: ${freshTicket.reporter?.full_name || '—'}`,
-        `Ditugaskan ke: ${freshTicket.assignee?.full_name || 'Belum ditugaskan'}`,
-        `Status: ${labelFor(STATUSES, freshTicket.status)}`,
-        savedNote ? `Catatan: ${savedNote}` : null,
-        '',
-        `Lihat detail: ${window.location.origin}/tickets/${freshTicket.id}`,
-      ]
-        .filter(Boolean)
-        .join('\n')
-
+      const message = buildWhatsappMessage(freshTicket, savedNote)
       waWindow.location.href = `https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`
     } else if (waWindow) {
       waWindow.close()
     }
 
     setSaving(false)
+  }
+
+  // Tombol "Kirim Ulang via WhatsApp": pakai data tiket yang SUDAH
+  // tersimpan (status terakhir), tanpa perlu mengubah/menyimpan apa pun
+  // dulu — berguna kalau tab WhatsApp sebelumnya tertutup tanpa sengaja,
+  // atau ingin menotifikasi ulang.
+  function handleResendWhatsapp() {
+    setError('')
+    const target = resolveWhatsappTarget(ticket)
+    const targetNumber = target?.whatsapp_number
+
+    if (!targetNumber) {
+      setError(
+        'Tidak ada nomor WhatsApp yang bisa dituju — pelapor/PIC terkait belum punya nomor WhatsApp tercatat.'
+      )
+      return
+    }
+
+    const message = buildWhatsappMessage(ticket, null)
+    window.open(`https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`, '_blank')
   }
 
   async function handleAddComment(e) {
@@ -308,9 +335,18 @@ export default function TicketDetail() {
             <p className="mt-3 text-xs text-ink-light">
               Setelah tersimpan, WhatsApp mungkin terbuka otomatis di tab baru ke pelapor (atau
               ke PIC kalau Anda sendiri pelapornya) dengan pesan sudah terisi — tinggal periksa
-              &amp; klik Kirim di sana.
+              &amp; klik Kirim di sana. Pakai tombol "Kirim Ulang via WhatsApp" kalau tabnya
+              tertutup tanpa sengaja atau ingin menotifikasi ulang tanpa mengubah apa pun.
             </p>
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleResendWhatsapp}
+                className="btn-secondary"
+                title="Kirim ulang notifikasi WhatsApp memakai status tiket yang sudah tersimpan, tanpa mengubah apa pun"
+              >
+                Kirim Ulang via WhatsApp
+              </button>
               <button type="submit" disabled={saving} className="btn-primary">
                 {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
               </button>

@@ -306,7 +306,14 @@ terbaru & catatan — dengan aturan penerima:
 
 Nomor yang dipakai di sini diambil dari kolom Nomor WhatsApp di profil pelapor/PIC tsb
 langsung (bukan dari Kontak Support) — kalau pihak yang dituju belum punya nomor WhatsApp
-tercatat, aplikasi diam-diam tidak membuka WhatsApp (perubahan tetap tersimpan normal).
+tercatat, aplikasi diam-diam tidak membuka WhatsApp (perubahan tetap tersimpan normal). Pesan
+WhatsApp (baik saat tiket dibuat maupun saat diperbarui) selalu menyertakan nama pelapor dan
+nama PIC yang ditugaskan, di samping nomor tiket, judul, perusahaan, & status.
+
+Tersedia juga tombol **"Kirim Ulang via WhatsApp"** di form Perbarui Tiket — mengirim ulang
+notifikasi memakai status tiket yang **sudah tersimpan** (bukan draft yang belum disimpan),
+tanpa perlu mengubah apa pun dulu. Berguna kalau tab WhatsApp sebelumnya tertutup tanpa
+sengaja, atau ingin menotifikasi ulang.
 
 ## 10. Catatan Keamanan untuk Produksi
 
