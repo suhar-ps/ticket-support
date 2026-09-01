@@ -176,11 +176,13 @@ create policy "read own category links" on user_categories for select using (use
 -- ---------------------------------------------------------------------
 -- MASTER KONTAK SUPPORT (WhatsApp)
 --
--- Satu baris = satu nomor WhatsApp penanggung jawab untuk kombinasi
--- PERUSAHAAN + KATEGORI tertentu. Dipakai untuk mengisi otomatis pesan
--- WhatsApp ("ada tiket baru...") saat pelapor menyimpan tiket baru —
--- nomor yang dipakai disesuaikan dengan perusahaan & kategori tiket
--- tsb. Dikelola sepenuhnya oleh Super Admin lewat menu Kontak Support.
+-- Satu baris = satu penanggung jawab untuk kombinasi PERUSAHAAN +
+-- KATEGORI tertentu, WAJIB ditautkan ke akun pengguna terdaftar
+-- (contact_user_id) — nomor WhatsApp SELALU diambil langsung dari data
+-- terkini di profil pengguna tsb (profiles.whatsapp_number), tidak lagi
+-- disimpan terpisah di sini. Kalau nomor WhatsApp pengguna itu berubah,
+-- kontak support otomatis ikut ter-update tanpa perlu diedit manual.
+-- Dikelola sepenuhnya oleh Super Admin lewat menu Kontak Support.
 --
 -- Hanya Super Admin yang boleh membaca/mengubah tabel ini secara
 -- langsung. Pengguna lain mengambil SATU nomor yang relevan lewat
@@ -194,7 +196,6 @@ create table if not exists support_contacts (
   category_id uuid references categories(id) on delete cascade not null,
   contact_user_id uuid references profiles(id) on delete set null,
   contact_name text,
-  whatsapp_number text not null,
   created_at timestamptz default now(),
   unique (company_id, category_id)
 );
@@ -203,9 +204,19 @@ create table if not exists support_contacts (
 -- belakangan) — aman dijalankan ulang.
 alter table support_contacts add column if not exists contact_user_id uuid references profiles(id) on delete set null;
 
+-- MIGRASI: kolom whatsapp_number di tabel ini dihapus — nomor sekarang
+-- SELALU diambil live dari profiles.whatsapp_number lewat
+-- contact_user_id (lihat get_support_whatsapp di bawah). Kontak yang
+-- BELUM ditautkan ke pengguna (contact_user_id kosong) — termasuk
+-- kontak lama yang pernah di-seed dari file Excel sebelumnya — akan
+-- kehilangan nomornya di sini; tautkan ke akun pengguna yang sesuai
+-- lewat menu Kontak Support supaya notifikasi WhatsApp-nya berfungsi
+-- lagi.
+alter table support_contacts drop column if exists whatsapp_number;
+
 alter table support_contacts enable row level security;
--- Kebijakan RLS-nya, fungsi lookup, dan seed data dipasang belakangan
--- di file ini (lihat dekat current_user_role()) — keduanya butuh fungsi
+-- Kebijakan RLS-nya dan fungsi lookup dipasang belakangan di file ini
+-- (lihat dekat current_user_role()) — keduanya butuh fungsi
 -- current_user_role() yang belum didefinisikan di titik ini.
 
 -- ---------------------------------------------------------------------
@@ -362,17 +373,15 @@ create policy "superadmin manage support contacts" on support_contacts for all u
   public.current_user_role() = 'superadmin'
 );
 
--- Dipanggil dari halaman Buat Tiket begitu tiket berhasil disimpan.
--- Mengembalikan NULL kalau tidak ada kontak yang cocok untuk kombinasi
--- perusahaan+kategori tsb — frontend menangani ini dengan diam-diam
--- tidak membuka WhatsApp (tidak menggagalkan pembuatan tiket).
+-- Dipanggil dari halaman Buat Tiket / Perbarui Tiket. Mengembalikan
+-- NULL kalau tidak ada kontak yang cocok, ATAU kontaknya belum
+-- ditautkan ke pengguna, ATAU pengguna tsb belum punya nomor WhatsApp
+-- tercatat — di ketiga kasus itu frontend menangani dengan diam-diam
+-- tidak membuka WhatsApp (tidak menggagalkan aksi utamanya).
 --
--- Kalau kontaknya ditautkan ke pengguna terdaftar (contact_user_id),
--- nomor yang dipakai adalah nomor WhatsApp TERKINI di profil pengguna
--- itu (bukan salinan lama) — supaya kalau nomornya berubah, kontak
--- support otomatis ikut ter-update tanpa perlu diedit manual. Kalau
--- profil itu kebetulan belum punya nomor, fallback ke whatsapp_number
--- yang tersimpan di support_contacts.
+-- Nomor SELALU diambil live dari profiles.whatsapp_number lewat
+-- contact_user_id — tidak ada lagi nomor tersimpan terpisah di
+-- support_contacts, supaya selalu sinkron dengan data terkini pengguna.
 create or replace function public.get_support_whatsapp(p_company_id uuid, p_category_id uuid)
 returns text
 language sql
@@ -380,44 +389,23 @@ security definer
 set search_path = public
 stable
 as $$
-  select coalesce(p.whatsapp_number, sc.whatsapp_number)
+  select p.whatsapp_number
   from public.support_contacts sc
-  left join public.profiles p on p.id = sc.contact_user_id
+  join public.profiles p on p.id = sc.contact_user_id
   where sc.company_id = p_company_id and sc.category_id = p_category_id
   limit 1;
 $$;
 
 grant execute on function public.get_support_whatsapp(uuid, uuid) to authenticated;
 
--- Seed data dari daftar kontak yang diberikan (list-wa.xlsx). Dicocokkan
--- lewat NAMA perusahaan & kategori (bukan UUID) supaya tidak bergantung
--- urutan pembuatan baris. Aman dijalankan ulang — nomor akan diperbarui
--- kalau sumbernya berubah.
-insert into support_contacts (company_id, category_id, whatsapp_number)
-select c.id, cat.id, v.whatsapp_number
-from (values
-  ('PT Agora', 'Facilities & Maintenance', '6289618808688'),
-  ('PT Agora', 'Housekeeping & Environment', '6289618808688'),
-  ('PT Mika Tunggal', 'Facilities & Maintenance', '6289618808688'),
-  ('PT Mika Tunggal', 'Housekeeping & Environment', '6289618808688'),
-  ('PT Omni Composite Solutions', 'Facilities & Maintenance', '6289618808688'),
-  ('PT Omni Composite Solutions', 'Housekeeping & Environment', '6289618808688'),
-  ('PT Petrindo Semesta', 'Facilities & Maintenance', '6289618808688'),
-  ('PT Petrindo Semesta', 'Housekeeping & Environment', '6289618808688'),
-  ('PT Petrindo Semesta', 'Hardware', '628161130668'),
-  ('PT Petrindo Semesta', 'Software', '628161130668'),
-  ('PT Petrindo Semesta', 'Network & Infrastructure', '628161130668'),
-  ('PT Sarana Instrument', 'Facilities & Maintenance', '6289618808688'),
-  ('PT Sarana Instrument', 'Housekeeping & Environment', '6289618808688'),
-  ('PT SAS International', 'Facilities & Maintenance', '6289618808688'),
-  ('PT SAS International', 'Housekeeping & Environment', '6289618808688'),
-  ('PT SAS International', 'Hardware', '628161130668'),
-  ('PT SAS International', 'Software', '628161130668'),
-  ('PT SAS International', 'Network & Infrastructure', '628161130668')
-) as v(company_name, category_name, whatsapp_number)
-join companies c on c.name = v.company_name
-join categories cat on cat.name = v.category_name
-on conflict (company_id, category_id) do update set whatsapp_number = excluded.whatsapp_number;
+-- CATATAN: seed data kontak dari list-wa.xlsx (nomor mentah, tidak
+-- terkait akun pengguna) sudah TIDAK dijalankan lagi di sini — desain
+-- baru mewajibkan setiap kontak ditautkan ke akun pengguna terdaftar
+-- (Support/Supervisor/Super Admin), dan nomor mentah tanpa akun tidak
+-- lagi bisa direpresentasikan. Kalau baris-baris lama dari seed
+-- sebelumnya masih ada di database Anda, baris itu tetap ada tapi tidak
+-- lagi punya nomor (kolomnya sudah dihapus) — tautkan ulang ke akun
+-- pengguna yang sesuai lewat menu Kontak Support supaya berfungsi lagi.
 
 -- Dipakai oleh kebijakan tickets/ticket_updates untuk menentukan apakah
 -- pengguna staf (Support/Supervisor) boleh mengakses tiket dengan

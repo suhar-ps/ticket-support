@@ -270,28 +270,27 @@ bisnis-ke-pengguna.
 
 **Nomor tujuannya ditentukan otomatis** dari kombinasi **perusahaan + kategori** tiket yang
 baru dibuat, lewat menu **Kontak Support** (khusus Super Admin) — satu baris di sana berarti
-satu nomor WhatsApp penanggung jawab untuk satu kombinasi perusahaan+kategori tertentu. Satu
-perusahaan bisa punya kontak berbeda untuk kategori berbeda (mis. kontak IT terpisah dari
-kontak fasilitas gedung).
+satu penanggung jawab untuk satu kombinasi perusahaan+kategori tertentu. Satu perusahaan bisa
+punya kontak berbeda untuk kategori berbeda (mis. kontak IT terpisah dari kontak fasilitas
+gedung). Kalau kombinasi perusahaan+kategori suatu tiket belum punya kontak terdaftar,
+aplikasi diam-diam tidak membuka WhatsApp — pembuatan tiket tetap berhasil normal.
 
-Kalau kombinasi perusahaan+kategori suatu tiket belum punya kontak terdaftar, aplikasi
-diam-diam tidak membuka WhatsApp — pembuatan tiket tetap berhasil normal. Halaman Kontak
-Support menampilkan peringatan kalau ada kombinasi yang belum dikonfigurasi.
+**Kontak Support TIDAK menyimpan nomor WhatsApp sendiri** — setiap baris di sana WAJIB
+ditautkan ke akun pengguna terdaftar (dropdown **"Pengguna Penanggung Jawab"**, hanya
+menampilkan akun dengan role **Tim Support, Supervisor, atau Super Admin**). Nomor yang
+dipakai untuk notifikasi SELALU diambil langsung & real-time dari kolom Nomor WhatsApp di
+profil pengguna itu — kalau nomornya berubah nanti (lewat Administrasi Pengguna), kontak
+support otomatis ikut ter-update tanpa perlu diedit ulang di menu Kontak Support.
 
-Nomor WhatsApp harus diisi dalam **format internasional tanpa tanda "+"** (mis.
-`6281234567890` untuk nomor Indonesia, bukan `081234567890` atau `+62 812-3456-7890`) — form
-Tambah/Edit Kontak otomatis membuang karakter selain angka, tapi kode negaranya (`62` untuk
-Indonesia) harus diisi manual, tidak otomatis dikonversi dari awalan `0`.
+Daftar kontak diurutkan **Perusahaan → Kategori → Nama Kontak**.
 
-**Menautkan kontak ke akun pengguna terdaftar**: setiap akun punya kolom nomor WhatsApp
-sendiri (diisi saat Daftar atau lewat Administrasi Pengguna). Di menu Kontak Support, alih-
-alih mengetik Nama Kontak & Nomor WhatsApp secara manual, Super Admin bisa memilih dari
-**"Pilih dari Pengguna Terdaftar"** — hanya menampilkan akun dengan role **Tim Support,
-Supervisor, atau Super Admin** (bukan Pelapor). Memilih salah satu akan **menautkan** kontak
-tsb ke akun itu (badge "Tertaut" muncul di daftar) — nama & nomor yang ditampilkan/dipakai
-SELALU mengikuti data TERKINI di profil pengguna tersebut, otomatis, tanpa perlu diedit
-ulang kalau nomornya berubah nanti. Kontak yang tidak ditautkan (mis. 18 kontak awal yang
-sudah ada) tetap berupa nama & nomor manual seperti biasa.
+> **Catatan migrasi**: versi sebelumnya sempat mengizinkan mengisi nomor WhatsApp secara
+> manual (tidak terikat akun), termasuk 18 kontak awal yang di-seed dari file Excel. Karena
+> kolom nomor manual itu sudah dihapus dari database, kontak-kontak lama yang belum ditautkan
+> ke akun pengguna akan tampil dengan badge **"Belum tertaut"** dan nomornya kosong — perlu
+> ditautkan ulang lewat tombol **Edit** ke akun pengguna yang sesuai (buatkan dulu akunnya di
+> Administrasi Pengguna kalau belum ada) supaya notifikasi WhatsApp untuk kombinasi itu
+> berfungsi lagi.
 
 **Notifikasi WhatsApp saat progress tiket diperbarui** (bukan cuma saat tiket dibuat): begitu
 Support/Supervisor/Super Admin menyimpan perubahan di form "Perbarui Tiket" (ubah status,
@@ -302,9 +301,9 @@ terbaru & catatan — dengan aturan penerima:
 - Kalau **berbeda** (staf mengelola tiket milik orang lain — kasus paling umum) → dikirim ke
   **pelapor**, sebagai notifikasi progress.
 
-Nomor yang dipakai diambil dari kolom Nomor WhatsApp di profil pelapor/PIC tsb (bukan dari
-Kontak Support) — kalau pihak yang dituju belum punya nomor WhatsApp tercatat, aplikasi
-diam-diam tidak membuka WhatsApp (perubahan tetap tersimpan normal).
+Nomor yang dipakai di sini diambil dari kolom Nomor WhatsApp di profil pelapor/PIC tsb
+langsung (bukan dari Kontak Support) — kalau pihak yang dituju belum punya nomor WhatsApp
+tercatat, aplikasi diam-diam tidak membuka WhatsApp (perubahan tetap tersimpan normal).
 
 ## 10. Catatan Keamanan untuk Produksi
 

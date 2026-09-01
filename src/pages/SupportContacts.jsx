@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import LoadingSpinner from '../components/LoadingSpinner'
-import { normalizeWhatsappNumber, WHATSAPP_FORMAT_HINT } from '../lib/whatsapp'
 
-const EMPTY_FORM = { companyId: '', categoryId: '', contactUserId: '', contactName: '', whatsappNumber: '' }
+const EMPTY_FORM = { companyId: '', categoryId: '', contactUserId: '' }
 const CONTACT_ROLES = ['support', 'supervisor', 'superadmin']
+
+function contactDisplayName(c) {
+  return c.contact_user_id ? (c.linked_user?.full_name || c.contact_name || '') : (c.contact_name || '')
+}
+
+function contactWhatsapp(c) {
+  return c.contact_user_id ? c.linked_user?.whatsapp_number || '' : ''
+}
 
 export default function SupportContacts() {
   const [contacts, setContacts] = useState([])
@@ -32,9 +39,8 @@ export default function SupportContacts() {
       supabase
         .from('support_contacts')
         .select(
-          'id, company_id, category_id, contact_user_id, contact_name, whatsapp_number, companies(name), categories(name), linked_user:profiles(full_name, whatsapp_number)'
-        )
-        .order('created_at', { ascending: false }),
+          'id, company_id, category_id, contact_user_id, contact_name, companies(name), categories(name), linked_user:profiles(full_name, whatsapp_number)'
+        ),
       supabase.from('companies').select('id, name').order('name'),
       supabase.from('categories').select('id, name').order('name'),
       supabase.rpc('list_users_for_admin'),
@@ -66,34 +72,34 @@ export default function SupportContacts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companies, categories])
 
-  function applyUserToForm(setter, userId) {
-    if (!userId) return
-    const u = users.find((x) => x.id === userId)
-    if (!u) return
-    setter((f) => ({ ...f, contactUserId: u.id, contactName: u.full_name, whatsappNumber: u.whatsapp_number || '' }))
-  }
-
-  function unlinkUser(setter) {
-    setter((f) => ({ ...f, contactUserId: '' }))
-  }
+  // Perusahaan → Kategori → Nama Kontak.
+  const sortedContacts = useMemo(() => {
+    return [...contacts].sort((a, b) => {
+      const byCompany = (a.companies?.name || '').localeCompare(b.companies?.name || '')
+      if (byCompany !== 0) return byCompany
+      const byCategory = (a.categories?.name || '').localeCompare(b.categories?.name || '')
+      if (byCategory !== 0) return byCategory
+      return contactDisplayName(a).localeCompare(contactDisplayName(b))
+    })
+  }, [contacts])
 
   async function handleAdd(e) {
     e.preventDefault()
     setAddError('')
 
-    const number = normalizeWhatsappNumber(form.whatsappNumber)
-    if (!number) {
-      setAddError('Nomor WhatsApp wajib diisi.')
+    if (!form.contactUserId) {
+      setAddError('Pilih pengguna dari daftar terlebih dahulu.')
       return
     }
+
+    const selectedUser = users.find((u) => u.id === form.contactUserId)
 
     setAddLoading(true)
     const { error } = await supabase.from('support_contacts').insert({
       company_id: form.companyId,
       category_id: form.categoryId,
-      contact_user_id: form.contactUserId || null,
-      contact_name: form.contactName.trim() || null,
-      whatsapp_number: number,
+      contact_user_id: form.contactUserId,
+      contact_name: selectedUser?.full_name || null,
     })
     setAddLoading(false)
 
@@ -106,7 +112,7 @@ export default function SupportContacts() {
       return
     }
 
-    setForm((f) => ({ ...f, contactName: '', whatsappNumber: '' }))
+    setForm((f) => ({ ...f, contactUserId: '' }))
     setShowAddForm(false)
     await load()
   }
@@ -117,8 +123,6 @@ export default function SupportContacts() {
       companyId: c.company_id,
       categoryId: c.category_id,
       contactUserId: c.contact_user_id || '',
-      contactName: c.contact_name || '',
-      whatsappNumber: c.whatsapp_number,
     })
     setRowError('')
   }
@@ -129,19 +133,18 @@ export default function SupportContacts() {
   }
 
   async function saveEdit(id) {
-    const number = normalizeWhatsappNumber(editForm.whatsappNumber)
-    if (!number) {
-      setRowError('Nomor WhatsApp wajib diisi.')
+    if (!editForm.contactUserId) {
+      setRowError('Pilih pengguna dari daftar terlebih dahulu.')
       return
     }
+    const selectedUser = users.find((u) => u.id === editForm.contactUserId)
     setRowPendingId(id)
     setRowError('')
     const { error } = await supabase
       .from('support_contacts')
       .update({
-        contact_user_id: editForm.contactUserId || null,
-        contact_name: editForm.contactName.trim() || null,
-        whatsapp_number: number,
+        contact_user_id: editForm.contactUserId,
+        contact_name: selectedUser?.full_name || null,
       })
       .eq('id', id)
     setRowPendingId(null)
@@ -177,14 +180,16 @@ export default function SupportContacts() {
     return count
   }, [contacts, companies, categories])
 
+  const unlinkedCount = useMemo(() => contacts.filter((c) => !c.contact_user_id).length, [contacts])
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold text-ink">Kontak Support</h1>
           <p className="text-sm text-ink-light">
-            Nomor WhatsApp penanggung jawab per kombinasi perusahaan + kategori. Dipakai untuk
-            mengisi otomatis pesan WhatsApp saat pelapor menyimpan tiket baru.
+            Penanggung jawab WhatsApp per kombinasi perusahaan + kategori. Nomornya selalu
+            diambil langsung dari data pengguna yang ditautkan.
           </p>
         </div>
         <button onClick={() => { setShowAddForm((v) => !v); setAddError('') }} className="btn-primary">
@@ -195,8 +200,13 @@ export default function SupportContacts() {
       {missingCombos > 0 && (
         <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
           {missingCombos} kombinasi perusahaan+kategori belum punya kontak — untuk kombinasi itu,
-          WhatsApp tidak akan terbuka otomatis saat tiket dibuat (pembuatan tiket tetap berhasil
-          normal).
+          WhatsApp tidak akan terbuka otomatis (aksi utamanya tetap berhasil normal).
+        </p>
+      )}
+      {unlinkedCount > 0 && (
+        <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+          {unlinkedCount} kontak belum ditautkan ke akun pengguna (mis. peninggalan data lama) —
+          nomornya tidak akan ditemukan sampai ditautkan ulang lewat tombol Edit.
         </p>
       )}
 
@@ -227,56 +237,27 @@ export default function SupportContacts() {
               </select>
             </div>
             <div className="sm:col-span-2">
-              <label className="label" htmlFor="addFromUser">Pilih dari Pengguna Terdaftar</label>
+              <label className="label" htmlFor="addFromUser">Pengguna Penanggung Jawab</label>
               <select
                 id="addFromUser"
+                required
                 className="input"
                 value={form.contactUserId}
-                onChange={(e) => applyUserToForm(setForm, e.target.value)}
+                onChange={(e) => setForm((f) => ({ ...f, contactUserId: e.target.value }))}
               >
-                <option value="">— Ketik manual, atau pilih pengguna di sini —</option>
+                <option value="">— Pilih pengguna —</option>
                 {users.map((u) => (
-                  <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
+                  <option key={u.id} value={u.id}>
+                    {u.full_name} ({u.email}){!u.whatsapp_number ? ' — belum ada nomor WhatsApp' : ''}
+                  </option>
                 ))}
               </select>
               <p className="mt-1.5 text-xs text-ink-light">
-                Hanya menampilkan pengguna dengan role Tim Support, Supervisor, atau Super
-                Admin. Memilih pengguna menautkan kontak ini ke akunnya — nama & nomor
-                WhatsApp akan selalu mengikuti data terkini di profil pengguna tsb.
-                {form.contactUserId && (
-                  <>
-                    {' '}
-                    <button
-                      type="button"
-                      onClick={() => unlinkUser(setForm)}
-                      className="font-medium text-brand-600 hover:text-brand-700"
-                    >
-                      Batalkan tautan
-                    </button>
-                  </>
-                )}
+                Hanya menampilkan pengguna dengan role Tim Support, Supervisor, atau Super Admin.
+                Nomor WhatsApp yang dipakai untuk notifikasi selalu mengikuti data terkini di
+                profil pengguna ini — kalau nomornya berubah nanti, otomatis ikut ter-update
+                tanpa perlu diedit di sini.
               </p>
-            </div>
-            <div>
-              <label className="label" htmlFor="addName">Nama Kontak</label>
-              <input
-                id="addName"
-                className="input"
-                placeholder="cth. Pak Budi - IT Support"
-                value={form.contactName}
-                onChange={(e) => setForm((f) => ({ ...f, contactName: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="addNumber">Nomor WhatsApp</label>
-              <input
-                id="addNumber"
-                className="input"
-                placeholder="cth. 6281234567890"
-                value={form.whatsappNumber}
-                onChange={(e) => setForm((f) => ({ ...f, whatsappNumber: e.target.value }))}
-              />
-              <p className="mt-1.5 text-xs text-ink-light">{WHATSAPP_FORMAT_HINT}</p>
             </div>
           </div>
 
@@ -295,7 +276,7 @@ export default function SupportContacts() {
 
       {loading ? (
         <LoadingSpinner label="Memuat kontak support..." />
-      ) : contacts.length === 0 ? (
+      ) : sortedContacts.length === 0 ? (
         <div className="card p-10 text-center text-ink-light">Belum ada kontak support.</div>
       ) : (
         <div className="card overflow-hidden">
@@ -311,7 +292,7 @@ export default function SupportContacts() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {contacts.map((c) => {
+                {sortedContacts.map((c) => {
                   const isEditing = editingId === c.id
                   const isPending = rowPendingId === c.id
                   return (
@@ -320,44 +301,34 @@ export default function SupportContacts() {
                       <td className="px-5 py-3 text-ink-light">{c.categories?.name}</td>
                       <td className="px-5 py-3 text-ink">
                         {isEditing ? (
-                          <div className="space-y-1.5">
-                            <select
-                              className="input !py-1.5 !text-xs"
-                              value={editForm.contactUserId}
-                              onChange={(e) => applyUserToForm(setEditForm, e.target.value)}
-                            >
-                              <option value="">— Kontak manual —</option>
-                              {users.map((u) => (
-                                <option key={u.id} value={u.id}>{u.full_name}</option>
-                              ))}
-                            </select>
-                            <input
-                              className="input !py-1.5 !text-sm"
-                              value={editForm.contactName}
-                              onChange={(e) => setEditForm((f) => ({ ...f, contactName: e.target.value }))}
-                            />
-                          </div>
+                          <select
+                            className="input !py-1.5 !text-xs"
+                            value={editForm.contactUserId}
+                            onChange={(e) => setEditForm((f) => ({ ...f, contactUserId: e.target.value }))}
+                          >
+                            <option value="">— Pilih pengguna —</option>
+                            {users.map((u) => (
+                              <option key={u.id} value={u.id}>{u.full_name}</option>
+                            ))}
+                          </select>
                         ) : c.contact_user_id ? (
                           <>
-                            {c.linked_user?.full_name || c.contact_name}
+                            {contactDisplayName(c)}
                             <span className="ml-1.5 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-600">
                               Tertaut
                             </span>
                           </>
                         ) : (
-                          c.contact_name || <span className="text-ink-light">—</span>
+                          <>
+                            {c.contact_name || <span className="text-ink-light">—</span>}
+                            <span className="ml-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                              Belum tertaut
+                            </span>
+                          </>
                         )}
                       </td>
-                      <td className="px-5 py-3 font-mono text-xs text-ink">
-                        {isEditing ? (
-                          <input
-                            className="input !py-1.5 !text-sm"
-                            value={editForm.whatsappNumber}
-                            onChange={(e) => setEditForm((f) => ({ ...f, whatsappNumber: e.target.value }))}
-                          />
-                        ) : (
-                          (c.contact_user_id && c.linked_user?.whatsapp_number) || c.whatsapp_number
-                        )}
+                      <td className="px-5 py-3 font-mono text-xs text-ink-light">
+                        {contactWhatsapp(c) || <span className="text-gray-400">—</span>}
                       </td>
                       <td className="px-5 py-3">
                         <div className="flex flex-wrap items-center gap-2">
