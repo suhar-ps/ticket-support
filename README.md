@@ -282,7 +282,10 @@ dipakai untuk notifikasi SELALU diambil langsung & real-time dari kolom Nomor Wh
 profil pengguna itu — kalau nomornya berubah nanti (lewat Administrasi Pengguna), kontak
 support otomatis ikut ter-update tanpa perlu diedit ulang di menu Kontak Support.
 
-Daftar kontak diurutkan **Perusahaan → Kategori → Nama Kontak**.
+Daftar kontak diurutkan **Perusahaan → Kategori → Nama Kontak**, dan bisa disaring per
+perusahaan lewat dropdown filter di atas tabel. Saat memilih pengguna di form Tambah Kontak,
+nomor WhatsApp-nya langsung ditampilkan sebagai pratinjau (atau peringatan kalau pengguna
+tsb belum punya nomor tercatat) sebelum disimpan.
 
 > **Catatan migrasi**: versi sebelumnya sempat mengizinkan mengisi nomor WhatsApp secara
 > manual (tidak terikat akun), termasuk 18 kontak awal yang di-seed dari file Excel. Karena

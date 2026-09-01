@@ -140,6 +140,8 @@ export default function TicketDetail() {
         `*Update Tiket: ${freshTicket.ticket_number}*`,
         `Judul: ${freshTicket.title}`,
         `Perusahaan: ${freshTicket.companies?.name || ''}`,
+        `Pelapor: ${freshTicket.reporter?.full_name || '—'}`,
+        `Ditugaskan ke: ${freshTicket.assignee?.full_name || 'Belum ditugaskan'}`,
         `Status: ${labelFor(STATUSES, freshTicket.status)}`,
         savedNote ? `Catatan: ${savedNote}` : null,
         '',

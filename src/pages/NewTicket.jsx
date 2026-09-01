@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { fetchVisibleCompaniesAndCategories } from '../lib/access'
-import { ASSET_TYPES, PRIORITIES, labelFor } from '../data/constants'
+import { PRIORITIES, labelFor } from '../data/constants'
 
 export default function NewTicket() {
   const { user, profile, refreshProfile } = useAuth()
@@ -20,7 +20,6 @@ export default function NewTicket() {
     description: '',
     categoryId: '',
     companyId: '',
-    assetType: 'computer',
     assetIdentifier: '',
     location: '',
     priority: 'medium',
@@ -90,7 +89,6 @@ export default function NewTicket() {
         description: form.description,
         category_id: form.categoryId,
         company_id: form.companyId,
-        asset_type: form.assetType,
         asset_identifier: form.assetIdentifier || null,
         location: form.location || null,
         priority: form.priority,
@@ -189,40 +187,24 @@ export default function NewTicket() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label className="label" htmlFor="category">Kategori Masalah</label>
-            {categories.length === 0 ? (
-              <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                Belum ada akses kategori.
-              </p>
-            ) : (
-              <select
-                id="category"
-                className="input"
-                value={form.categoryId}
-                onChange={(e) => update('categoryId', e.target.value)}
-              >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          <div>
-            <label className="label" htmlFor="assetType">Jenis Aset</label>
+        <div>
+          <label className="label" htmlFor="category">Kategori Masalah</label>
+          {categories.length === 0 ? (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              Belum ada akses kategori.
+            </p>
+          ) : (
             <select
-              id="assetType"
+              id="category"
               className="input"
-              value={form.assetType}
-              onChange={(e) => update('assetType', e.target.value)}
+              value={form.categoryId}
+              onChange={(e) => update('categoryId', e.target.value)}
             >
-              {ASSET_TYPES.map((a) => (
-                <option key={a.value} value={a.value}>{a.label}</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
-          </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

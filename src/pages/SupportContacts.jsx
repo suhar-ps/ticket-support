@@ -20,6 +20,7 @@ export default function SupportContacts() {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState('')
+  const [companyFilter, setCompanyFilter] = useState('all')
 
   const [showAddForm, setShowAddForm] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -72,16 +73,17 @@ export default function SupportContacts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companies, categories])
 
-  // Perusahaan → Kategori → Nama Kontak.
+  // Filter perusahaan, lalu urut Perusahaan → Kategori → Nama Kontak.
   const sortedContacts = useMemo(() => {
-    return [...contacts].sort((a, b) => {
+    const filtered = companyFilter === 'all' ? contacts : contacts.filter((c) => c.company_id === companyFilter)
+    return [...filtered].sort((a, b) => {
       const byCompany = (a.companies?.name || '').localeCompare(b.companies?.name || '')
       if (byCompany !== 0) return byCompany
       const byCategory = (a.categories?.name || '').localeCompare(b.categories?.name || '')
       if (byCategory !== 0) return byCategory
       return contactDisplayName(a).localeCompare(contactDisplayName(b))
     })
-  }, [contacts])
+  }, [contacts, companyFilter])
 
   async function handleAdd(e) {
     e.preventDefault()
@@ -210,6 +212,17 @@ export default function SupportContacts() {
         </p>
       )}
 
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <select
+          className="input sm:max-w-xs"
+          value={companyFilter}
+          onChange={(e) => setCompanyFilter(e.target.value)}
+        >
+          <option value="all">Semua Perusahaan</option>
+          {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </div>
+
       {showAddForm && (
         <form onSubmit={handleAdd} className="card mb-6 space-y-4 p-6">
           <h2 className="font-display text-sm font-bold text-ink">Tambah Kontak</h2>
@@ -247,11 +260,23 @@ export default function SupportContacts() {
               >
                 <option value="">— Pilih pengguna —</option>
                 {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name} ({u.email}){!u.whatsapp_number ? ' — belum ada nomor WhatsApp' : ''}
-                  </option>
+                  <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
                 ))}
               </select>
+              {form.contactUserId && (
+                <p className="mt-1.5 text-xs">
+                  Nomor WhatsApp:{' '}
+                  {users.find((u) => u.id === form.contactUserId)?.whatsapp_number ? (
+                    <span className="font-mono font-medium text-ink">
+                      {users.find((u) => u.id === form.contactUserId).whatsapp_number}
+                    </span>
+                  ) : (
+                    <span className="font-medium text-amber-700">
+                      belum tercatat — lengkapi dulu lewat Administrasi Pengguna
+                    </span>
+                  )}
+                </p>
+              )}
               <p className="mt-1.5 text-xs text-ink-light">
                 Hanya menampilkan pengguna dengan role Tim Support, Supervisor, atau Super Admin.
                 Nomor WhatsApp yang dipakai untuk notifikasi selalu mengikuti data terkini di
