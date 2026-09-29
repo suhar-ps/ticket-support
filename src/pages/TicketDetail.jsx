@@ -236,11 +236,23 @@ export default function TicketDetail() {
   // tombolnya sendiri diatur oleh showResendLink di atas.
   function handleResendWhatsapp() {
     setError('')
-    const targetNumber = ticket?.assignee?.whatsapp_number
+
+    // Tautan ini hanya tampil kalau role yang login SAMA dengan role
+    // pembuat aktivitas terakhir (lihat showResendLink) — jadi arah
+    // kirimnya cukup ditentukan dari role yang sedang login:
+    //   Pelapor yang login (berarti aktivitas terakhir juga oleh
+    //   Pelapor) → kirim ke PIC yang ditugaskan.
+    //   Staf yang login (berarti aktivitas terakhir juga oleh staf)
+    //   → kirim ke pelapor, sebagai notifikasi progress.
+    const targetNumber = currentUserIsPelapor
+      ? ticket?.assignee?.whatsapp_number
+      : ticket?.reporter?.whatsapp_number
 
     if (!targetNumber) {
       setError(
-        'Tidak bisa mengirim — PIC belum ditugaskan atau belum punya nomor WhatsApp tercatat.'
+        currentUserIsPelapor
+          ? 'Tidak bisa mengirim — PIC belum ditugaskan atau belum punya nomor WhatsApp tercatat.'
+          : 'Tidak bisa mengirim — pelapor belum punya nomor WhatsApp tercatat.'
       )
       return
     }
