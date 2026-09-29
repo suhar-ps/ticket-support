@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
-import { normalizeWhatsappNumber, WHATSAPP_FORMAT_HINT } from '../lib/whatsapp'
+import { combinePhoneNumber, COUNTRY_CODES } from '../lib/whatsapp'
 
 // Role awal SELALU 'user' — pendaftaran publik tidak pernah membuat
-// akun Support/Supervisor. Kenaikan role hanya dilakukan oleh
-// Supervisor lewat halaman Administrasi Pengguna (atau lewat SQL Editor
-// untuk mengangkat Supervisor pertama kali).
+// akun Support/Supervisor. Kenaikan role hanya dilakukan oleh Super
+// Admin lewat halaman Administrasi Pengguna (atau lewat SQL Editor
+// untuk mengangkat Super Admin pertama kali).
 const DEFAULT_ROLE = 'user'
 
 export default function Register() {
@@ -16,7 +16,8 @@ export default function Register() {
     email: '',
     password: '',
     defaultCompanyId: '',
-    whatsappNumber: '',
+    countryCode: COUNTRY_CODES[0].code,
+    phoneNumber: '',
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -46,6 +47,12 @@ export default function Register() {
       return
     }
 
+    const whatsappNumber = combinePhoneNumber(form.countryCode, form.phoneNumber)
+    if (!whatsappNumber) {
+      setError('Nomor WhatsApp wajib diisi.')
+      return
+    }
+
     setLoading(true)
     const { data, error: signUpError } = await supabase.auth.signUp({
       email: form.email,
@@ -59,7 +66,7 @@ export default function Register() {
           full_name: form.fullName,
           role: DEFAULT_ROLE,
           default_company_id: form.defaultCompanyId || null,
-          whatsapp_number: normalizeWhatsappNumber(form.whatsappNumber) || null,
+          whatsapp_number: whatsappNumber,
         },
       },
     })
@@ -88,7 +95,7 @@ export default function Register() {
           full_name: form.fullName,
           role: DEFAULT_ROLE,
           default_company_id: form.defaultCompanyId || null,
-          whatsapp_number: normalizeWhatsappNumber(form.whatsappNumber) || null,
+          whatsapp_number: whatsappNumber,
         },
         { onConflict: 'id' }
       )
@@ -153,6 +160,32 @@ export default function Register() {
           </div>
 
           <div>
+            <label className="label">
+              Nomor WhatsApp (untuk keperluan notifikasi progress update)
+            </label>
+            <div className="flex gap-2">
+              <select
+                aria-label="Kode Negara"
+                className="input w-36 flex-none"
+                value={form.countryCode}
+                onChange={(e) => update('countryCode', e.target.value)}
+              >
+                {COUNTRY_CODES.map((c) => (
+                  <option key={c.code} value={c.code}>{c.label}</option>
+                ))}
+              </select>
+              <input
+                aria-label="Nomor Telepon"
+                required
+                className="input flex-1"
+                placeholder="cth. 081234567890"
+                value={form.phoneNumber}
+                onChange={(e) => update('phoneNumber', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div>
             <label className="label" htmlFor="defaultCompany">Perusahaan Default</label>
             <select
               id="defaultCompany"
@@ -168,18 +201,6 @@ export default function Register() {
               Dipakai untuk mengisi otomatis pilihan perusahaan saat Anda membuat tiket —
               bisa diubah kapan pun nanti.
             </p>
-          </div>
-
-          <div>
-            <label className="label" htmlFor="whatsappNumber">Nomor WhatsApp (untuk keperluan notifikasi progress update)</label>
-            <input
-              id="whatsappNumber"
-              className="input"
-              placeholder="cth. 6281234567890"
-              value={form.whatsappNumber}
-              onChange={(e) => update('whatsappNumber', e.target.value)}
-            />
-            <p className="mt-1.5 text-xs text-ink-light">{WHATSAPP_FORMAT_HINT}</p>
           </div>
 
           {error && (

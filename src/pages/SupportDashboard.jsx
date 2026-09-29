@@ -44,6 +44,7 @@ export default function SupportDashboard() {
     }
     load()
     return () => { active = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const filtered = useMemo(() => {
@@ -67,6 +68,7 @@ export default function SupportDashboard() {
 
   const openCount = tickets.filter((t) => t.status === 'open').length
   const inProgressCount = tickets.filter((t) => t.status === 'in_progress').length
+  const pendingCount = tickets.filter((t) => t.status === 'pending').length
   const urgentCount = tickets.filter((t) => t.priority === 'urgent' && !['resolved', 'closed'].includes(t.status)).length
 
   return (
@@ -76,9 +78,10 @@ export default function SupportDashboard() {
         <p className="text-sm text-ink-light">Kelola dan perbarui status seluruh laporan gangguan</p>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-4">
         <SummaryStat label="Tiket Baru" value={openCount} tone="blue" />
         <SummaryStat label="Sedang Dikerjakan" value={inProgressCount} tone="amber" />
+        <SummaryStat label="Menunggu" value={pendingCount} tone="violet" />
         <SummaryStat label="Prioritas Mendesak (belum selesai)" value={urgentCount} tone="red" />
       </div>
 
@@ -126,6 +129,7 @@ function SummaryStat({ label, value, tone }) {
   const toneClasses = {
     blue: 'text-blue-700 bg-blue-50',
     amber: 'text-amber-700 bg-amber-50',
+    violet: 'text-violet-700 bg-violet-50',
     red: 'text-red-700 bg-red-50',
   }
   return (

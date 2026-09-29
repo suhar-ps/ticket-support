@@ -304,16 +304,22 @@ terbaru & catatan — dengan aturan penerima:
 - Kalau **berbeda** (staf mengelola tiket milik orang lain — kasus paling umum) → dikirim ke
   **pelapor**, sebagai notifikasi progress.
 
-Nomor yang dipakai di sini diambil dari kolom Nomor WhatsApp di profil pelapor/PIC tsb
-langsung (bukan dari Kontak Support) — kalau pihak yang dituju belum punya nomor WhatsApp
-tercatat, aplikasi diam-diam tidak membuka WhatsApp (perubahan tetap tersimpan normal). Pesan
-WhatsApp (baik saat tiket dibuat maupun saat diperbarui) selalu menyertakan nama pelapor dan
-nama PIC yang ditugaskan, di samping nomor tiket, judul, perusahaan, & status.
+**Notifikasi WhatsApp saat pelapor menambahkan informasi**: begitu pelapor mengirim catatan
+lewat kotak "Tambahkan Informasi Tambahan" (di tiketnya sendiri), WhatsApp juga otomatis
+terbuka — arahnya selalu **dari pelapor ke PIC yang ditugaskan** (tidak berlaku aturan
+"sama nama" di atas, karena kotak ini memang hanya dipakai pemilik tiket).
 
-Tersedia juga tombol **"Kirim Ulang via WhatsApp"** di form Perbarui Tiket — mengirim ulang
-notifikasi memakai status tiket yang **sudah tersimpan** (bukan draft yang belum disimpan),
-tanpa perlu mengubah apa pun dulu. Berguna kalau tab WhatsApp sebelumnya tertutup tanpa
-sengaja, atau ingin menotifikasi ulang.
+Nomor yang dipakai di semua notifikasi ini diambil dari kolom Nomor WhatsApp di profil
+pelapor/PIC tsb langsung (bukan dari Kontak Support) — kalau pihak yang dituju belum punya
+nomor WhatsApp tercatat, aplikasi diam-diam tidak membuka WhatsApp (aksi utamanya tetap
+tersimpan normal). Pesan WhatsApp selalu menyertakan nama pelapor dan nama PIC yang
+ditugaskan, di samping nomor tiket, judul, perusahaan, & status.
+
+**Kirim ulang manual**: di baris **terakhir** pada Riwayat Aktivitas tiket, ada tautan kecil
+**"↻ Kirim Ulang via WhatsApp (Pelapor → PIC)"** — arahnya selalu tetap dari pelapor ke PIC
+(siapa pun yang mengkliknya), memakai status tiket yang **sudah tersimpan**, tanpa mengubah
+apa pun. Berguna kalau tab WhatsApp sebelumnya tertutup tanpa sengaja, atau ingin
+menotifikasi ulang PIC.
 
 ## 10. Catatan Keamanan untuk Produksi
 

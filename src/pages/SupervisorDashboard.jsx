@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import * as XLSX from 'xlsx-js-style'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
@@ -9,7 +10,7 @@ import { fetchVisibleCompaniesAndCategories } from '../lib/access'
 import LoadingSpinner from '../components/LoadingSpinner'
 import StatusBadge from '../components/StatusBadge'
 import PriorityBadge from '../components/PriorityBadge'
-import { STATUSES, formatDateTime } from '../data/constants'
+import { STATUSES, PRIORITIES, formatDateTime, labelFor } from '../data/constants'
 
 const STATUS_COLORS = {
   open: '#3B82F6',
@@ -35,6 +36,22 @@ function defaultDateRange() {
   return { from: toDateInputValue(firstOfMonth), to: toDateInputValue(now) }
 }
 
+// Waktu pengerjaan (jam): dari created_at sampai resolved_at kalau
+// tiket sudah Selesai/Ditutup (berhenti menghitung, angkanya tetap),
+// atau sampai SAAT INI kalau masih berjalan (terus bertambah selama
+// halaman dibuka/dimuat ulang).
+function calculateWorkHours(ticket) {
+  const start = new Date(ticket.created_at)
+  const isDone = ['resolved', 'closed'].includes(ticket.status)
+  const end = isDone && ticket.resolved_at ? new Date(ticket.resolved_at) : new Date()
+  return (end - start) / 36e5
+}
+
+function formatWorkHours(hours) {
+  if (hours == null || Number.isNaN(hours)) return '—'
+  return `${hours.toFixed(1)} jam`
+}
+
 export default function SupervisorDashboard() {
   const navigate = useNavigate()
   const { user, profile, refreshProfile } = useAuth()
@@ -42,11 +59,13 @@ export default function SupervisorDashboard() {
   const [companies, setCompanies] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
-  const [companyFilter, setCompanyFilter] = useState(profile?.default_company_id || 'all')
+  const [companyFilter, setCompanyFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState([])
   const [{ from: dateFrom, to: dateTo }, setDateRange] = useState(defaultDateRange)
   const [savingDefault, setSavingDefault] = useState(false)
   const [defaultSaved, setDefaultSaved] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   function setDateFrom(value) {
     setDateRange((r) => ({ ...r, from: value }))
@@ -56,6 +75,13 @@ export default function SupervisorDashboard() {
   }
   function resetDateRange() {
     setDateRange(defaultDateRange())
+  }
+
+  // Status: array kosong berarti "semua status" (tidak difilter).
+  function toggleStatus(value) {
+    setStatusFilter((prev) =>
+      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
+    )
   }
 
   async function handleSaveDefaultCompany() {
@@ -81,7 +107,7 @@ export default function SupervisorDashboard() {
       const [{ data: ticketData }, { companies: companyData, categories: categoryData }] = await Promise.all([
         supabase
           .from('tickets')
-          .select('*, categories(name), companies(name), reporter:profiles!tickets_created_by_fkey(full_name)')
+          .select('*, categories(name), companies(name), reporter:profiles!tickets_created_by_fkey(full_name), assignee:profiles!tickets_assigned_to_fkey(full_name)')
           .order('created_at', { ascending: false }),
         fetchVisibleCompaniesAndCategories(profile),
       ])
@@ -101,6 +127,7 @@ export default function SupervisorDashboard() {
     return tickets.filter((t) => {
       if (companyFilter !== 'all' && t.company_id !== companyFilter) return false
       if (categoryFilter !== 'all' && t.category_id !== categoryFilter) return false
+      if (statusFilter.length > 0 && !statusFilter.includes(t.status)) return false
 
       const createdAt = new Date(t.created_at)
       if (rangeStart && createdAt < rangeStart) return false
@@ -108,7 +135,7 @@ export default function SupervisorDashboard() {
 
       return true
     })
-  }, [tickets, companyFilter, categoryFilter, dateFrom, dateTo])
+  }, [tickets, companyFilter, categoryFilter, statusFilter, dateFrom, dateTo])
 
   const stats = useMemo(() => {
     const total = filtered.length
@@ -147,27 +174,120 @@ export default function SupervisorDashboard() {
     }))
   }, [filtered, companies])
 
-  function exportCsv() {
-    const headers = ['Nomor Tiket', 'Judul', 'Perusahaan', 'Kategori', 'Prioritas', 'Status', 'Pelapor', 'Dibuat', 'Selesai']
-    const rows = filtered.map((t) => [
-      t.ticket_number,
-      t.title.replace(/"/g, "'"),
+  // Ambil catatan perbaikan TERAKHIR (non-kosong) per tiket dari
+  // ticket_updates — untuk kolom "Catatan Perbaikan" di ekspor, karena
+  // satu tiket bisa punya banyak catatan tapi laporan cuma butuh satu
+  // baris per tiket.
+  async function fetchLatestNotes(ticketIds) {
+    if (ticketIds.length === 0) return {}
+    const { data } = await supabase
+      .from('ticket_updates')
+      .select('ticket_id, note, created_at')
+      .in('ticket_id', ticketIds)
+      .order('created_at', { ascending: true })
+
+    const latest = {}
+    for (const u of data || []) {
+      if (u.note && u.note.trim()) {
+        latest[u.ticket_id] = u.note.trim()
+      }
+    }
+    return latest
+  }
+
+  // Format "YYYY-MM-DD" (dari input tanggal) jadi teks tanggal
+  // berbahasa Indonesia, mis. "1 Januari 2026".
+  function formatDateOnly(isoDateStr) {
+    if (!isoDateStr) return ''
+    return new Date(`${isoDateStr}T00:00:00`).toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    })
+  }
+
+  async function exportXlsx() {
+    setExporting(true)
+
+    const latestNoteByTicket = await fetchLatestNotes(filtered.map((t) => t.id))
+
+    // Laporan selalu diurutkan tanggal dilapor paling lama dulu (ASC),
+    // terlepas dari urutan tabel di layar.
+    const sortedForExport = [...filtered].sort(
+      (a, b) => new Date(a.created_at) - new Date(b.created_at)
+    )
+
+    const headers = [
+      'Tanggal Dilapor',
+      'Judul Masalah',
+      'Pelapor',
+      'Perusahaan',
+      'Kategori',
+      'Lokasi',
+      'Prioritas',
+      'Deskripsi',
+      'Ditugaskan',
+      'Tanggal Diperbaiki',
+      'Catatan Perbaikan',
+      'Status',
+      'Lama Perbaikan (jam)',
+    ]
+    const rows = sortedForExport.map((t) => [
+      formatDateTime(t.created_at),
+      t.title,
+      t.reporter?.full_name || '',
       t.companies?.name || '',
       t.categories?.name || '',
-      t.priority,
-      t.status,
-      t.reporter?.full_name || '',
-      t.created_at,
-      t.resolved_at || '',
+      t.location || '',
+      labelFor(PRIORITIES, t.priority),
+      t.description || '',
+      t.assignee?.full_name || 'Belum ditugaskan',
+      t.resolved_at ? formatDateTime(t.resolved_at) : '',
+      latestNoteByTicket[t.id] || '',
+      labelFor(STATUSES, t.status),
+      Math.round(calculateWorkHours(t) * 10) / 10,
     ])
-    const csv = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `laporan-tiket-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+
+    const lastColIndex = headers.length - 1 // untuk rentang merge judul & periode
+
+    const titleRow = ['Laporan Permasalahan & Perbaikan']
+    const periodRow = [`Periode: ${formatDateOnly(dateFrom)} sampai ${formatDateOnly(dateTo)}`]
+    const blankRow = []
+
+    const worksheet = XLSX.utils.aoa_to_sheet([titleRow, periodRow, blankRow, headers, ...rows])
+
+    // Baris 1: judul, font 18 bold. Baris 2: periode, font 10.
+    worksheet['A1'].s = { font: { bold: true, sz: 18 } }
+    worksheet['A2'].s = { font: { sz: 10 } }
+
+    // Gabungkan sel judul & periode supaya membentang di atas seluruh
+    // kolom tabel, bukan cuma di kolom A.
+    worksheet['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: lastColIndex } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: lastColIndex } },
+    ]
+
+    worksheet['!cols'] = [
+      { wch: 18 }, // Tanggal Dilapor
+      { wch: 28 }, // Judul Masalah
+      { wch: 20 }, // Pelapor
+      { wch: 24 }, // Perusahaan
+      { wch: 22 }, // Kategori
+      { wch: 20 }, // Lokasi
+      { wch: 10 }, // Prioritas
+      { wch: 40 }, // Deskripsi
+      { wch: 20 }, // Ditugaskan
+      { wch: 18 }, // Tanggal Diperbaiki
+      { wch: 40 }, // Catatan Perbaikan
+      { wch: 14 }, // Status
+      { wch: 16 }, // Lama Perbaikan (jam)
+    ]
+
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Laporan Tiket')
+    XLSX.writeFile(workbook, `laporan-tiket-${new Date().toISOString().slice(0, 10)}.xlsx`)
+
+    setExporting(false)
   }
 
   if (loading) return <LoadingSpinner label="Menyusun laporan..." />
@@ -186,7 +306,9 @@ export default function SupervisorDashboard() {
             </span>
           </p>
         </div>
-        <button onClick={exportCsv} className="btn-secondary">⬇ Ekspor CSV</button>
+        <button onClick={exportXlsx} disabled={exporting} className="btn-secondary">
+          {exporting ? 'Menyiapkan...' : '⬇ Ekspor XLSX'}
+        </button>
       </div>
 
       <div className="mb-6 flex flex-wrap items-end gap-3">
@@ -230,6 +352,35 @@ export default function SupervisorDashboard() {
           <option value="all">Semua Kategori</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
+      </div>
+
+      <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="text-xs font-medium text-ink-light">Status:</span>
+        <label className="flex items-center gap-1.5 text-xs text-ink">
+          <input
+            type="checkbox"
+            checked={statusFilter.length === 0}
+            onChange={() => setStatusFilter([])}
+            className="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+          />
+          Semua
+        </label>
+        {STATUSES.map((s) => (
+          <label key={s.value} className="flex items-center gap-1.5 text-xs text-ink">
+            <input
+              type="checkbox"
+              checked={statusFilter.includes(s.value)}
+              onChange={() => toggleStatus(s.value)}
+              className="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+            />
+            {s.label}
+          </label>
+        ))}
+        {statusFilter.length > 0 && (
+          <button type="button" onClick={() => setStatusFilter([])} className="text-xs font-medium text-ink-light hover:text-ink">
+            Reset Status
+          </button>
+        )}
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -301,29 +452,37 @@ export default function SupervisorDashboard() {
                 <th className="px-5 py-3 font-semibold">Perusahaan</th>
                 <th className="px-5 py-3 font-semibold">Prioritas</th>
                 <th className="px-5 py-3 font-semibold">Status</th>
+                <th className="px-5 py-3 font-semibold">Waktu Pengerjaan</th>
                 <th className="px-5 py-3 font-semibold">Dibuat</th>
                 <th className="px-5 py-3 font-semibold"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filtered.map((t) => (
-                <tr
-                  key={t.id}
-                  onClick={() => navigate(`/tickets/${t.id}`)}
-                  className="cursor-pointer hover:bg-brand-50/40"
-                  title="Klik untuk lihat detail tiket"
-                >
-                  <td className="whitespace-nowrap px-5 py-3 font-mono text-xs text-brand-600">{t.ticket_number}</td>
-                  <td className="px-5 py-3 text-ink">{t.title}</td>
-                  <td className="px-5 py-3 text-ink-light">{t.companies?.name}</td>
-                  <td className="px-5 py-3"><PriorityBadge priority={t.priority} /></td>
-                  <td className="px-5 py-3"><StatusBadge status={t.status} /></td>
-                  <td className="whitespace-nowrap px-5 py-3 text-ink-light">{formatDateTime(t.created_at)}</td>
-                  <td className="whitespace-nowrap px-5 py-3 text-right text-xs font-medium text-brand-600">
-                    Lihat detail →
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((t) => {
+                const isDone = ['resolved', 'closed'].includes(t.status)
+                return (
+                  <tr
+                    key={t.id}
+                    onClick={() => navigate(`/tickets/${t.id}`)}
+                    className="cursor-pointer hover:bg-brand-50/40"
+                    title="Klik untuk lihat detail tiket"
+                  >
+                    <td className="whitespace-nowrap px-5 py-3 font-mono text-xs text-brand-600">{t.ticket_number}</td>
+                    <td className="px-5 py-3 text-ink">{t.title}</td>
+                    <td className="px-5 py-3 text-ink-light">{t.companies?.name}</td>
+                    <td className="px-5 py-3"><PriorityBadge priority={t.priority} /></td>
+                    <td className="px-5 py-3"><StatusBadge status={t.status} /></td>
+                    <td className="whitespace-nowrap px-5 py-3 text-ink-light">
+                      {formatWorkHours(calculateWorkHours(t))}
+                      {!isDone && <span className="ml-1 text-[10px] text-amber-600">(berjalan)</span>}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-3 text-ink-light">{formatDateTime(t.created_at)}</td>
+                    <td className="whitespace-nowrap px-5 py-3 text-right text-xs font-medium text-brand-600">
+                      Lihat detail →
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

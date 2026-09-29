@@ -36,7 +36,34 @@ export default function TicketDetail() {
   // lewat Antrian Support, form pengelolaan penuh tetap ditampilkan
   // karena mereka sedang bertindak sebagai staf yang menangani antrian.
   const showManagementForm = isStaffRole && !(isSupervisorLike && isOwner && !cameFromQueue)
-  const showCommentBox = isOwner && !showManagementForm
+
+  // Tautan "Kirim Ulang via WhatsApp" di baris terakhir Riwayat
+  // Aktivitas hanya tampil kalau KATEGORI role pengguna yang sedang
+  // login (Pelapor vs Staf) SAMA dengan kategori role pembuat aktivitas
+  // terakhir itu:
+  //   pelapor lihat, aktivitas terakhir oleh pelapor      → tampil
+  //   pelapor lihat, aktivitas terakhir oleh staf         → sembunyi
+  //   staf lihat,    aktivitas terakhir oleh pelapor      → sembunyi
+  //   staf lihat,    aktivitas terakhir oleh staf         → tampil
+  const lastUpdate = updates[updates.length - 1]
+  const lastActivityIsPelapor = lastUpdate?.profiles?.role === 'user'
+  const currentUserIsPelapor = profile?.role === 'user'
+
+  // Setelah tiket Selesai/Ditutup LEBIH dari 24 jam (dihitung dari
+  // resolved_at), kotak "Tambahkan Informasi Tambahan" & tombol "Kirim
+  // Catatan", serta tautan "Kirim Ulang via WhatsApp", tidak lagi
+  // ditampilkan — tiket dianggap sudah final. Form "Perbarui Tiket"
+  // milik staf TIDAK terpengaruh aturan ini (staf tetap bisa membuka
+  // kembali/mengedit kapan pun).
+  const isTicketDone = ['resolved', 'closed'].includes(ticket?.status)
+  const hoursSinceResolved = ticket?.resolved_at
+    ? (Date.now() - new Date(ticket.resolved_at).getTime()) / 36e5
+    : null
+  const isLockedAfter24h = isTicketDone && hoursSinceResolved !== null && hoursSinceResolved > 24
+
+  const showResendLink =
+    updates.length > 0 && lastActivityIsPelapor === currentUserIsPelapor && !isLockedAfter24h
+  const showCommentBox = isOwner && !showManagementForm && !isLockedAfter24h
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -165,40 +192,61 @@ export default function TicketDetail() {
     setSaving(false)
   }
 
-  // Tombol "Kirim Ulang via WhatsApp": pakai data tiket yang SUDAH
-  // tersimpan (status terakhir), tanpa perlu mengubah/menyimpan apa pun
-  // dulu — berguna kalau tab WhatsApp sebelumnya tertutup tanpa sengaja,
-  // atau ingin menotifikasi ulang.
-  function handleResendWhatsapp() {
-    setError('')
-    const target = resolveWhatsappTarget(ticket)
-    const targetNumber = target?.whatsapp_number
-
-    if (!targetNumber) {
-      setError(
-        'Tidak ada nomor WhatsApp yang bisa dituju — pelapor/PIC terkait belum punya nomor WhatsApp tercatat.'
-      )
-      return
-    }
-
-    const message = buildWhatsappMessage(ticket, null)
-    window.open(`https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`, '_blank')
-  }
-
   async function handleAddComment(e) {
     e.preventDefault()
     if (!note.trim()) return
     setSaving(true)
+    setError('')
+
+    // Buka tab kosong SEKARANG (sinkron, sebelum await) supaya tidak
+    // diblokir pop-up blocker browser.
+    const waWindow = window.open('', '_blank')
+
+    const savedNote = note.trim()
     await supabase.from('ticket_updates').insert({
       ticket_id: ticket.id,
       user_id: user.id,
-      note: note.trim(),
+      note: savedNote,
       status_from: null,
       status_to: null,
     })
     setNote('')
+
+    const freshTicket = await load()
+
+    // Catatan dari pemilik tiket SELALU dikirim ke PIC yang ditugaskan
+    // (kotak ini memang hanya dipakai oleh pelapor sendiri, jadi arahnya
+    // tetap, tidak perlu logika "sama nama = ..." seperti form Support).
+    const targetNumber = freshTicket?.assignee?.whatsapp_number
+
+    if (targetNumber && waWindow && freshTicket) {
+      const message = buildWhatsappMessage(freshTicket, savedNote)
+      waWindow.location.href = `https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`
+    } else if (waWindow) {
+      waWindow.close()
+    }
+
     setSaving(false)
-    await load()
+  }
+
+  // Tombol "Kirim Ulang via WhatsApp" di baris terakhir Riwayat
+  // Aktivitas: SELALU dari pelapor ke PIC yang ditugaskan (arah tetap,
+  // tidak bergantung siapa yang login), memakai status tiket yang SUDAH
+  // tersimpan — tanpa perlu mengubah/menyimpan apa pun dulu. Visibilitas
+  // tombolnya sendiri diatur oleh showResendLink di atas.
+  function handleResendWhatsapp() {
+    setError('')
+    const targetNumber = ticket?.assignee?.whatsapp_number
+
+    if (!targetNumber) {
+      setError(
+        'Tidak bisa mengirim — PIC belum ditugaskan atau belum punya nomor WhatsApp tercatat.'
+      )
+      return
+    }
+
+    const message = buildWhatsappMessage(ticket, lastUpdate?.note || null)
+    window.open(`https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`, '_blank')
   }
 
   if (loading) return <LoadingSpinner label="Memuat detail tiket..." />
@@ -273,11 +321,14 @@ export default function TicketDetail() {
         {/* Timeline */}
         <div className="p-6">
           <h2 className="mb-3 font-display text-sm font-bold text-ink">Riwayat Aktivitas</h2>
+          {error && (
+            <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+          )}
           {updates.length === 0 ? (
             <p className="text-sm text-ink-light">Belum ada aktivitas.</p>
           ) : (
             <ul className="space-y-4">
-              {updates.map((u) => (
+              {updates.map((u, index) => (
                 <li key={u.id} className="flex gap-3">
                   <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand-400" />
                   <div className="min-w-0 flex-1">
@@ -293,6 +344,16 @@ export default function TicketDetail() {
                     </p>
                     {u.note && <p className="mt-1 whitespace-pre-wrap text-sm text-ink-light">{u.note}</p>}
                     <p className="mt-0.5 text-xs text-gray-400">{formatDateTime(u.created_at)}</p>
+                    {index === updates.length - 1 && showResendLink && (
+                      <button
+                        type="button"
+                        onClick={handleResendWhatsapp}
+                        className="mt-2 text-xs font-medium text-brand-600 hover:text-brand-700"
+                        title="Kirim ulang notifikasi WhatsApp dari pelapor ke PIC yang ditugaskan, memakai status tiket yang sudah tersimpan"
+                      >
+                        ↻ Kirim Ulang via WhatsApp
+                      </button>
+                    )}
                   </div>
                 </li>
               ))}
@@ -300,7 +361,7 @@ export default function TicketDetail() {
           )}
         </div>
 
-        {/* Aksi perbaikan (Support, Supervisor, Super Admin) */}
+        {/* Support actions */}
         {showManagementForm && (
           <form onSubmit={handleSupportSave} className="border-t border-gray-100 bg-brand-50/40 p-6">
             <h2 className="mb-3 font-display text-sm font-bold text-ink">Perbarui Tiket</h2>
@@ -331,22 +392,12 @@ export default function TicketDetail() {
                 onChange={(e) => setNote(e.target.value)}
               />
             </div>
-            {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
             <p className="mt-3 text-xs text-ink-light">
               Setelah tersimpan, WhatsApp mungkin terbuka otomatis di tab baru ke pelapor (atau
               ke PIC kalau Anda sendiri pelapornya) dengan pesan sudah terisi — tinggal periksa
-              &amp; klik Kirim di sana. Pakai tombol "Kirim Ulang via WhatsApp" kalau tabnya
-              tertutup tanpa sengaja atau ingin menotifikasi ulang tanpa mengubah apa pun.
+              &amp; klik Kirim di sana.
             </p>
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                onClick={handleResendWhatsapp}
-                className="btn-secondary"
-                title="Kirim ulang notifikasi WhatsApp memakai status tiket yang sudah tersimpan, tanpa mengubah apa pun"
-              >
-                Kirim Ulang via WhatsApp
-              </button>
+            <div className="mt-4 flex justify-end">
               <button type="submit" disabled={saving} className="btn-primary">
                 {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
               </button>

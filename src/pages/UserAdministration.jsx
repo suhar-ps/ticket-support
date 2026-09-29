@@ -3,10 +3,17 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { ROLE_LABELS, formatDateTime } from '../data/constants'
-import { normalizeWhatsappNumber, WHATSAPP_FORMAT_HINT } from '../lib/whatsapp'
+import { combinePhoneNumber, COUNTRY_CODES, normalizeWhatsappNumber, WHATSAPP_FORMAT_HINT } from '../lib/whatsapp'
 
 const ROLE_ORDER = ['user', 'support', 'supervisor', 'superadmin']
-const EMPTY_NEW_USER = { fullName: '', email: '', password: '', role: 'user', whatsappNumber: '' }
+const EMPTY_NEW_USER = {
+  fullName: '',
+  email: '',
+  password: '',
+  role: 'user',
+  countryCode: COUNTRY_CODES[0].code,
+  phoneNumber: '',
+}
 
 function describeFunctionError(message) {
   if (!message) return ''
@@ -23,6 +30,9 @@ export default function UserAdministration() {
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState('all')
+  const [sortField, setSortField] = useState('created_at')
+  const [sortDir, setSortDir] = useState('desc')
   const [listError, setListError] = useState('')
 
   // Tambah pengguna
@@ -65,12 +75,48 @@ export default function UserAdministration() {
   useEffect(() => { load() }, [])
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return users
-    const q = search.toLowerCase()
-    return users.filter(
-      (u) => u.full_name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q)
-    )
-  }, [users, search])
+    let list = users
+    if (roleFilter !== 'all') {
+      list = list.filter((u) => u.role === roleFilter)
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      list = list.filter(
+        (u) => u.full_name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [users, roleFilter, search])
+
+  const sorted = useMemo(() => {
+    const list = [...filtered]
+    list.sort((a, b) => {
+      let result
+      if (sortField === 'full_name') {
+        result = (a.full_name || '').localeCompare(b.full_name || '')
+      } else {
+        result = new Date(a.created_at) - new Date(b.created_at)
+      }
+      return sortDir === 'asc' ? result : -result
+    })
+    return list
+  }, [filtered, sortField, sortDir])
+
+  function handleSort(field) {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      // Nama: default A-Z saat pertama kali dipilih. Terdaftar: default
+      // terbaru dulu saat pertama kali dipilih.
+      setSortDir(field === 'full_name' ? 'asc' : 'desc')
+    }
+  }
+
+  function sortIndicator(field) {
+    if (sortField !== field) return null
+    return sortDir === 'asc' ? ' ▲' : ' ▼'
+  }
 
   const counts = ROLE_ORDER.reduce((acc, r) => {
     acc[r] = users.filter((u) => u.role === r).length
@@ -103,6 +149,12 @@ export default function UserAdministration() {
       return
     }
 
+    const whatsappNumber = combinePhoneNumber(newUser.countryCode, newUser.phoneNumber)
+    if (!whatsappNumber) {
+      setAddError('Nomor WhatsApp wajib diisi.')
+      return
+    }
+
     setAddLoading(true)
     const { data, error } = await supabase.functions.invoke('admin-create-user', {
       body: {
@@ -110,7 +162,7 @@ export default function UserAdministration() {
         password: newUser.password,
         full_name: newUser.fullName,
         role: newUser.role,
-        whatsapp_number: normalizeWhatsappNumber(newUser.whatsappNumber),
+        whatsapp_number: whatsappNumber,
       },
     })
     setAddLoading(false)
@@ -143,7 +195,7 @@ export default function UserAdministration() {
     flashSuccess(targetId)
   }
 
-  // ---- Edit nama ----
+  // ---- Edit nama & WhatsApp ----
   function startEdit(u) {
     setActiveId(u.id)
     setActiveMode('edit')
@@ -209,26 +261,6 @@ export default function UserAdministration() {
     flashSuccess(targetId)
   }
 
-  // ---- Hapus pengguna ----
-  function startDeleteConfirm(u) {
-    setActiveId(u.id)
-    setActiveMode('delete')
-    setRowError('')
-  }
-
-  async function handleDelete(targetId) {
-    setRowPendingId(targetId)
-    setRowError('')
-    const { error } = await supabase.rpc('admin_delete_user', { target_user_id: targetId })
-    setRowPendingId(null)
-    if (error) {
-      setRowError(error.message)
-      return
-    }
-    setUsers((prev) => prev.filter((u) => u.id !== targetId))
-    resetRowState()
-  }
-
   // ---- Kelola akses perusahaan & kategori ----
   function startAccessEdit(u) {
     setActiveId(u.id)
@@ -266,6 +298,26 @@ export default function UserAdministration() {
     )
     resetRowState()
     flashSuccess(targetId)
+  }
+
+  // ---- Hapus pengguna ----
+  function startDeleteConfirm(u) {
+    setActiveId(u.id)
+    setActiveMode('delete')
+    setRowError('')
+  }
+
+  async function handleDelete(targetId) {
+    setRowPendingId(targetId)
+    setRowError('')
+    const { error } = await supabase.rpc('admin_delete_user', { target_user_id: targetId })
+    setRowPendingId(null)
+    if (error) {
+      setRowError(error.message)
+      return
+    }
+    setUsers((prev) => prev.filter((u) => u.id !== targetId))
+    resetRowState()
   }
 
   return (
@@ -333,15 +385,28 @@ export default function UserAdministration() {
                 ))}
               </select>
             </div>
-            <div>
-              <label className="label" htmlFor="newWhatsapp">Nomor WhatsApp (untuk keperluan notifikasi progress update)</label>
-              <input
-                id="newWhatsapp"
-                className="input"
-                placeholder="cth. 6281234567890"
-                value={newUser.whatsappNumber}
-                onChange={(e) => setNewUser((f) => ({ ...f, whatsappNumber: e.target.value }))}
-              />
+            <div className="sm:col-span-2">
+              <label className="label">Nomor WhatsApp (untuk keperluan notifikasi progress update)</label>
+              <div className="flex gap-2">
+                <select
+                  aria-label="Kode Negara"
+                  className="input w-36 flex-none"
+                  value={newUser.countryCode}
+                  onChange={(e) => setNewUser((f) => ({ ...f, countryCode: e.target.value }))}
+                >
+                  {COUNTRY_CODES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.label}</option>
+                  ))}
+                </select>
+                <input
+                  aria-label="Nomor Telepon"
+                  required
+                  className="input flex-1"
+                  placeholder="cth. 081234567890"
+                  value={newUser.phoneNumber}
+                  onChange={(e) => setNewUser((f) => ({ ...f, phoneNumber: e.target.value }))}
+                />
+              </div>
             </div>
           </div>
 
@@ -368,13 +433,23 @@ export default function UserAdministration() {
         ))}
       </div>
 
-      <div className="card mb-5 p-4">
+      <div className="card mb-5 flex flex-wrap items-center gap-3 p-4">
         <input
           className="input sm:max-w-xs"
           placeholder="Cari nama atau email..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        <select
+          className="input sm:max-w-[10rem]"
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+        >
+          <option value="all">Semua Role</option>
+          {ROLE_ORDER.map((r) => (
+            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+          ))}
+        </select>
       </div>
 
       {listError && (
@@ -386,7 +461,7 @@ export default function UserAdministration() {
 
       {loading ? (
         <LoadingSpinner label="Memuat daftar pengguna..." />
-      ) : filtered.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <div className="card p-10 text-center text-ink-light">Tidak ada pengguna yang cocok.</div>
       ) : (
         <div className="card overflow-hidden">
@@ -394,16 +469,32 @@ export default function UserAdministration() {
             <table className="w-full text-left text-sm">
               <thead className="bg-brand-50/60 text-xs uppercase tracking-wide text-ink-light">
                 <tr>
-                  <th className="px-5 py-3 font-semibold">Nama</th>
+                  <th className="px-5 py-3 font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('full_name')}
+                      className="font-semibold uppercase tracking-wide hover:text-ink"
+                    >
+                      Nama{sortIndicator('full_name')}
+                    </button>
+                  </th>
                   <th className="px-5 py-3 font-semibold">Email</th>
                   <th className="px-5 py-3 font-semibold">WhatsApp</th>
-                  <th className="px-5 py-3 font-semibold">Terdaftar</th>
+                  <th className="px-5 py-3 font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('created_at')}
+                      className="font-semibold uppercase tracking-wide hover:text-ink"
+                    >
+                      Terdaftar{sortIndicator('created_at')}
+                    </button>
+                  </th>
                   <th className="px-5 py-3 font-semibold">Role</th>
                   <th className="px-5 py-3 font-semibold">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filtered.map((u) => {
+                {sorted.map((u) => {
                   const isSelf = u.id === user.id
                   const isPending = rowPendingId === u.id
                   const isActive = activeId === u.id
