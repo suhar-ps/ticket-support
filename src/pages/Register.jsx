@@ -58,6 +58,14 @@ export default function Register() {
       email: form.email,
       password: form.password,
       options: {
+        // Ditentukan EKSPLISIT di sini (bukan mengandalkan "Site URL" di
+        // pengaturan Supabase) supaya tautan konfirmasi di email selalu
+        // mengarah ke tempat aplikasi ini SEDANG benar-benar dibuka —
+        // otomatis ke domain Netlify kalau didaftarkan dari situs live,
+        // atau ke localhost kalau sedang diuji coba lokal. URL ini harus
+        // ada di daftar "Redirect URLs" Supabase (Authentication > URL
+        // Configuration) — lihat README.
+        emailRedirectTo: `${window.location.origin}/login`,
         // Disimpan sebagai metadata di auth.users. Dibaca oleh trigger
         // database (handle_new_user) untuk membuat baris profil secara
         // otomatis, terlepas dari apakah sesi login sudah aktif atau
