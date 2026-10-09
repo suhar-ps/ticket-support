@@ -50,6 +50,7 @@ export default function UserAdministration() {
   const [activeMode, setActiveMode] = useState(null) // 'edit' | 'password' | 'delete' | 'access'
   const [editValue, setEditValue] = useState('')
   const [editWhatsapp, setEditWhatsapp] = useState('')
+  const [editRole, setEditRole] = useState('user')
   const [editArea, setEditArea] = useState('')
   const [editCompanyId, setEditCompanyId] = useState('')
   const [passwordValue, setPasswordValue] = useState('')
@@ -138,6 +139,7 @@ export default function UserAdministration() {
     setActiveMode(null)
     setEditValue('')
     setEditWhatsapp('')
+    setEditRole('user')
     setEditArea('')
     setEditCompanyId('')
     setPasswordValue('')
@@ -187,29 +189,13 @@ export default function UserAdministration() {
     await load()
   }
 
-  // ---- Ubah role ----
-  async function handleRoleChange(targetId, newRole) {
-    setRowPendingId(targetId)
-    setRowError('')
-    const { error } = await supabase.rpc('set_user_role', {
-      target_user_id: targetId,
-      new_role: newRole,
-    })
-    setRowPendingId(null)
-    if (error) {
-      setRowError(error.message)
-      return
-    }
-    setUsers((prev) => prev.map((u) => (u.id === targetId ? { ...u, role: newRole } : u)))
-    flashSuccess(targetId)
-  }
-
-  // ---- Edit nama & WhatsApp ----
+  // ---- Edit nama, WhatsApp, role, area & perusahaan ----
   function startEdit(u) {
     setActiveId(u.id)
     setActiveMode('edit')
     setEditValue(u.full_name)
     setEditWhatsapp(u.whatsapp_number || '')
+    setEditRole(u.role)
     setEditArea(u.area || '')
     setEditCompanyId(u.default_company_id || '')
     setRowError('')
@@ -220,9 +206,11 @@ export default function UserAdministration() {
       setRowError('Nama lengkap tidak boleh kosong.')
       return
     }
+    const current = users.find((u) => u.id === targetId)
     setRowPendingId(targetId)
     setRowError('')
     const normalizedWhatsapp = normalizeWhatsappNumber(editWhatsapp)
+
     const { error } = await supabase.rpc('admin_update_profile', {
       target_user_id: targetId,
       new_full_name: editValue.trim(),
@@ -230,29 +218,44 @@ export default function UserAdministration() {
       new_area: editArea || null,
       new_default_company_id: editCompanyId || null,
     })
-    setRowPendingId(null)
     if (error) {
+      setRowPendingId(null)
       setRowError(error.message)
       return
     }
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === targetId
-          ? {
-              ...u,
-              full_name: editValue.trim(),
-              whatsapp_number: normalizedWhatsapp || null,
-              area: editArea || null,
-              default_company_id: editCompanyId || null,
-              // Server menambahkan perusahaan default baru ke akses pengguna.
-              company_ids:
-                editCompanyId && !(u.company_ids || []).includes(editCompanyId)
-                  ? [...(u.company_ids || []), editCompanyId]
-                  : u.company_ids,
-            }
-          : u
-      )
-    )
+
+    // Profil sudah tersimpan -> perbarui tampilan dulu, lalu urus role
+    // (RPC terpisah). Kalau role gagal, data profil tetap tercatat dan
+    // pesan error role ditampilkan.
+    const profilePatch = {
+      full_name: editValue.trim(),
+      whatsapp_number: normalizedWhatsapp || null,
+      area: editArea || null,
+      default_company_id: editCompanyId || null,
+      // Server menambahkan perusahaan default baru ke akses pengguna.
+      company_ids:
+        editCompanyId && !(current?.company_ids || []).includes(editCompanyId)
+          ? [...(current?.company_ids || []), editCompanyId]
+          : current?.company_ids,
+    }
+
+    let roleError = null
+    if (current && editRole !== current.role) {
+      const { error: err } = await supabase.rpc('set_user_role', {
+        target_user_id: targetId,
+        new_role: editRole,
+      })
+      roleError = err
+      if (!err) profilePatch.role = editRole
+    }
+
+    setRowPendingId(null)
+    setUsers((prev) => prev.map((u) => (u.id === targetId ? { ...u, ...profilePatch } : u)))
+
+    if (roleError) {
+      setRowError(`Data tersimpan, tetapi role gagal diubah: ${roleError.message}`)
+      return
+    }
     resetRowState()
     flashSuccess(targetId)
   }
@@ -466,9 +469,13 @@ export default function UserAdministration() {
                   aria-label="Nomor Telepon"
                   required
                   className="input flex-1"
-                  placeholder="cth. 081234567890"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="cth. 081234567890 (hanya angka)"
                   value={newUser.phoneNumber}
-                  onChange={(e) => setNewUser((f) => ({ ...f, phoneNumber: e.target.value }))}
+                  onChange={(e) =>
+                    setNewUser((f) => ({ ...f, phoneNumber: normalizeWhatsappNumber(e.target.value) }))
+                  }
                 />
               </div>
             </div>
@@ -595,16 +602,9 @@ export default function UserAdministration() {
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-ink-light">{formatDateTime(u.created_at)}</td>
                       <td className="px-4 py-3">
-                        <select
-                          className="input !py-1.5 !text-xs sm:max-w-[9rem]"
-                          value={u.role}
-                          disabled={isPending}
-                          onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                        >
-                          {ROLE_ORDER.map((r) => (
-                            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                          ))}
-                        </select>
+                        <span className="whitespace-nowrap rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700">
+                          {ROLE_LABELS[u.role] || u.role}
+                        </span>
                       </td>
                       <td className="px-4 py-3">
                         {isActive && (activeMode === 'edit' || activeMode === 'password') ? (
@@ -667,10 +667,15 @@ export default function UserAdministration() {
                               <label className="label">Nomor WhatsApp</label>
                               <input
                                 className="input font-mono"
-                                placeholder="6281234567890"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                placeholder="6281234567890 (hanya angka)"
                                 value={editWhatsapp}
-                                onChange={(e) => setEditWhatsapp(e.target.value)}
+                                onChange={(e) => setEditWhatsapp(normalizeWhatsappNumber(e.target.value))}
                               />
+                              <p className="mt-1.5 text-xs text-ink-light">
+                                Hanya angka — tanpa spasi, tanda “+”, strip, atau karakter lain.
+                              </p>
                             </div>
                             <div>
                               <label className="label">Area</label>
@@ -700,6 +705,28 @@ export default function UserAdministration() {
                                   <option key={c.id} value={c.id}>{c.name}</option>
                                 ))}
                               </select>
+                            </div>
+                            <div>
+                              <label className="label">Role</label>
+                              <select
+                                className="input"
+                                value={editRole}
+                                disabled={isSelf}
+                                onChange={(e) => setEditRole(e.target.value)}
+                              >
+                                {ROLE_ORDER.map((r) => (
+                                  <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                                ))}
+                              </select>
+                              {isSelf ? (
+                                <p className="mt-1.5 text-xs text-ink-light">
+                                  Role akun Anda sendiri tidak bisa diubah di sini.
+                                </p>
+                              ) : editRole !== u.role ? (
+                                <p className="mt-1.5 text-xs text-amber-700">
+                                  Berlaku penuh setelah pengguna logout &amp; login kembali.
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                           <div className="mt-4 flex justify-end gap-2">
