@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { ROLE_LABELS, formatDateTime } from '../data/constants'
 import { combinePhoneNumber, COUNTRY_CODES, normalizeWhatsappNumber, WHATSAPP_FORMAT_HINT } from '../lib/whatsapp'
+import { AREAS, companiesInArea } from '../lib/areas'
 
 const ROLE_ORDER = ['user', 'support', 'supervisor', 'superadmin']
 const EMPTY_NEW_USER = {
@@ -11,6 +12,8 @@ const EMPTY_NEW_USER = {
   email: '',
   password: '',
   role: 'user',
+  area: '',
+  defaultCompanyId: '',
   countryCode: COUNTRY_CODES[0].code,
   phoneNumber: '',
 }
@@ -47,6 +50,8 @@ export default function UserAdministration() {
   const [activeMode, setActiveMode] = useState(null) // 'edit' | 'password' | 'delete' | 'access'
   const [editValue, setEditValue] = useState('')
   const [editWhatsapp, setEditWhatsapp] = useState('')
+  const [editArea, setEditArea] = useState('')
+  const [editCompanyId, setEditCompanyId] = useState('')
   const [passwordValue, setPasswordValue] = useState('')
   const [companyIdsDraft, setCompanyIdsDraft] = useState([])
   const [categoryIdsDraft, setCategoryIdsDraft] = useState([])
@@ -59,7 +64,7 @@ export default function UserAdministration() {
     setListError('')
     const [{ data, error }, { data: companyData }, { data: categoryData }] = await Promise.all([
       supabase.rpc('list_users_for_admin'),
-      supabase.from('companies').select('id, name').order('name'),
+      supabase.from('companies').select('id, name, area').order('name'),
       supabase.from('categories').select('id, name').order('name'),
     ])
     if (error) {
@@ -133,6 +138,8 @@ export default function UserAdministration() {
     setActiveMode(null)
     setEditValue('')
     setEditWhatsapp('')
+    setEditArea('')
+    setEditCompanyId('')
     setPasswordValue('')
     setCompanyIdsDraft([])
     setCategoryIdsDraft([])
@@ -163,6 +170,8 @@ export default function UserAdministration() {
         full_name: newUser.fullName,
         role: newUser.role,
         whatsapp_number: whatsappNumber,
+        area: newUser.area || null,
+        default_company_id: newUser.defaultCompanyId || null,
       },
     })
     setAddLoading(false)
@@ -201,6 +210,8 @@ export default function UserAdministration() {
     setActiveMode('edit')
     setEditValue(u.full_name)
     setEditWhatsapp(u.whatsapp_number || '')
+    setEditArea(u.area || '')
+    setEditCompanyId(u.default_company_id || '')
     setRowError('')
   }
 
@@ -216,6 +227,8 @@ export default function UserAdministration() {
       target_user_id: targetId,
       new_full_name: editValue.trim(),
       new_whatsapp_number: normalizedWhatsapp || null,
+      new_area: editArea || null,
+      new_default_company_id: editCompanyId || null,
     })
     setRowPendingId(null)
     if (error) {
@@ -224,7 +237,20 @@ export default function UserAdministration() {
     }
     setUsers((prev) =>
       prev.map((u) =>
-        u.id === targetId ? { ...u, full_name: editValue.trim(), whatsapp_number: normalizedWhatsapp || null } : u
+        u.id === targetId
+          ? {
+              ...u,
+              full_name: editValue.trim(),
+              whatsapp_number: normalizedWhatsapp || null,
+              area: editArea || null,
+              default_company_id: editCompanyId || null,
+              // Server menambahkan perusahaan default baru ke akses pengguna.
+              company_ids:
+                editCompanyId && !(u.company_ids || []).includes(editCompanyId)
+                  ? [...(u.company_ids || []), editCompanyId]
+                  : u.company_ids,
+            }
+          : u
       )
     )
     resetRowState()
@@ -320,6 +346,13 @@ export default function UserAdministration() {
     resetRowState()
   }
 
+  const companyNameById = useMemo(
+    () => Object.fromEntries(companies.map((c) => [c.id, c.name])),
+    [companies]
+  )
+  const newUserCompanies = companiesInArea(companies, newUser.area)
+  const editCompanies = companiesInArea(companies, editArea)
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -382,6 +415,37 @@ export default function UserAdministration() {
               >
                 {ROLE_ORDER.map((r) => (
                   <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="newArea">Area</label>
+              <select
+                id="newArea"
+                className="input"
+                value={newUser.area}
+                onChange={(e) => setNewUser((f) => ({ ...f, area: e.target.value, defaultCompanyId: '' }))}
+              >
+                <option value="">Tidak diatur (semua perusahaan)</option>
+                {AREAS.map((a) => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="newCompany">Perusahaan Default</label>
+              <select
+                id="newCompany"
+                className="input"
+                disabled={!newUser.area}
+                value={newUser.defaultCompanyId}
+                onChange={(e) => setNewUser((f) => ({ ...f, defaultCompanyId: e.target.value }))}
+              >
+                <option value="">
+                  {newUser.area ? `Semua perusahaan di ${newUser.area}` : 'Pilih area terlebih dahulu'}
+                </option>
+                {newUserCompanies.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
             </div>
@@ -469,7 +533,7 @@ export default function UserAdministration() {
             <table className="w-full text-left text-sm">
               <thead className="bg-brand-50/60 text-xs uppercase tracking-wide text-ink-light">
                 <tr>
-                  <th className="px-5 py-3 font-semibold">
+                  <th className="px-4 py-3 font-semibold">
                     <button
                       type="button"
                       onClick={() => handleSort('full_name')}
@@ -477,10 +541,11 @@ export default function UserAdministration() {
                     >
                       Nama{sortIndicator('full_name')}
                     </button>
+                    <span className="ml-1 font-normal normal-case tracking-normal">/ Email</span>
                   </th>
-                  <th className="px-5 py-3 font-semibold">Email</th>
-                  <th className="px-5 py-3 font-semibold">WhatsApp</th>
-                  <th className="px-5 py-3 font-semibold">
+                  <th className="px-4 py-3 font-semibold">WhatsApp</th>
+                  <th className="px-4 py-3 font-semibold">Area / Perusahaan</th>
+                  <th className="px-4 py-3 font-semibold">
                     <button
                       type="button"
                       onClick={() => handleSort('created_at')}
@@ -489,8 +554,8 @@ export default function UserAdministration() {
                       Terdaftar{sortIndicator('created_at')}
                     </button>
                   </th>
-                  <th className="px-5 py-3 font-semibold">Role</th>
-                  <th className="px-5 py-3 font-semibold">Aksi</th>
+                  <th className="px-4 py-3 font-semibold">Role</th>
+                  <th className="px-4 py-3 font-semibold">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -501,41 +566,35 @@ export default function UserAdministration() {
 
                   return (
                     <Fragment key={u.id}>
-                    <tr className="hover:bg-brand-50/30">
-                      <td className="px-5 py-3 font-medium text-ink">
-                        {isActive && activeMode === 'edit' ? (
-                          <input
-                            className="input !py-1.5 !text-sm"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            autoFocus
-                          />
-                        ) : (
+                    <tr className={isActive && (activeMode === 'edit' || activeMode === 'password') ? 'bg-brand-50/30' : 'hover:bg-brand-50/30'}>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-ink">
+                          {u.full_name}
+                          {isSelf && (
+                            <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-600">
+                              Anda
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-ink-light">{u.email}</div>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-ink-light">
+                        {u.whatsapp_number || <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        {u.area || u.default_company_id ? (
                           <>
-                            {u.full_name}
-                            {isSelf && (
-                              <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-600">
-                                Anda
-                              </span>
-                            )}
+                            <div className="text-ink">{u.area || '—'}</div>
+                            <div className="text-xs text-ink-light">
+                              {companyNameById[u.default_company_id] || 'Semua perusahaan di area'}
+                            </div>
                           </>
-                        )}
-                      </td>
-                      <td className="px-5 py-3 text-ink-light">{u.email}</td>
-                      <td className="px-5 py-3 font-mono text-xs text-ink-light">
-                        {isActive && activeMode === 'edit' ? (
-                          <input
-                            className="input !py-1.5 !text-sm"
-                            placeholder="6281234567890"
-                            value={editWhatsapp}
-                            onChange={(e) => setEditWhatsapp(e.target.value)}
-                          />
                         ) : (
-                          u.whatsapp_number || <span className="text-gray-400">—</span>
+                          <span className="text-gray-400">—</span>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-5 py-3 text-ink-light">{formatDateTime(u.created_at)}</td>
-                      <td className="px-5 py-3">
+                      <td className="whitespace-nowrap px-4 py-3 text-ink-light">{formatDateTime(u.created_at)}</td>
+                      <td className="px-4 py-3">
                         <select
                           className="input !py-1.5 !text-xs sm:max-w-[9rem]"
                           value={u.role}
@@ -547,41 +606,11 @@ export default function UserAdministration() {
                           ))}
                         </select>
                       </td>
-                      <td className="px-5 py-3">
-                        {isActive && activeMode === 'password' ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <input
-                              type="password"
-                              className="input !py-1.5 !text-sm sm:max-w-[10rem]"
-                              placeholder="Kata sandi baru"
-                              value={passwordValue}
-                              onChange={(e) => setPasswordValue(e.target.value)}
-                              autoFocus
-                            />
-                            <button
-                              onClick={() => savePassword(u.id)}
-                              disabled={isPending}
-                              className="btn-secondary !px-2.5 !py-1 text-xs"
-                            >
-                              {isPending ? 'Menyimpan...' : 'Simpan'}
-                            </button>
-                            <button onClick={resetRowState} className="btn-ghost !px-2.5 !py-1 text-xs">
-                              Batal
-                            </button>
-                          </div>
-                        ) : isActive && activeMode === 'edit' ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              onClick={() => saveEdit(u.id)}
-                              disabled={isPending}
-                              className="btn-secondary !px-2.5 !py-1 text-xs"
-                            >
-                              {isPending ? 'Menyimpan...' : 'Simpan'}
-                            </button>
-                            <button onClick={resetRowState} className="btn-ghost !px-2.5 !py-1 text-xs">
-                              Batal
-                            </button>
-                          </div>
+                      <td className="px-4 py-3">
+                        {isActive && (activeMode === 'edit' || activeMode === 'password') ? (
+                          <span className="text-xs text-ink-light">
+                            {activeMode === 'edit' ? 'Sedang diedit…' : 'Ganti password…'}
+                          </span>
                         ) : isActive && activeMode === 'delete' ? (
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-xs text-ink-light">Yakin hapus?</span>
@@ -597,7 +626,7 @@ export default function UserAdministration() {
                             </button>
                           </div>
                         ) : (
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <button onClick={() => startEdit(u)} className="btn-ghost !px-2.5 !py-1 text-xs">
                               Edit
                             </button>
@@ -621,10 +650,106 @@ export default function UserAdministration() {
                         )}
                       </td>
                     </tr>
+                    {isActive && activeMode === 'edit' && (
+                      <tr className="bg-brand-50/30">
+                        <td colSpan={6} className="px-4 pb-4 pt-1">
+                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div>
+                              <label className="label">Nama Lengkap</label>
+                              <input
+                                className="input"
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                autoFocus
+                              />
+                            </div>
+                            <div>
+                              <label className="label">Nomor WhatsApp</label>
+                              <input
+                                className="input font-mono"
+                                placeholder="6281234567890"
+                                value={editWhatsapp}
+                                onChange={(e) => setEditWhatsapp(e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <label className="label">Area</label>
+                              <select
+                                className="input"
+                                value={editArea}
+                                onChange={(e) => { setEditArea(e.target.value); setEditCompanyId('') }}
+                              >
+                                <option value="">Tidak diatur</option>
+                                {AREAS.map((a) => (
+                                  <option key={a} value={a}>{a}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label">Perusahaan Default</label>
+                              <select
+                                className="input"
+                                disabled={!editArea}
+                                value={editCompanyId}
+                                onChange={(e) => setEditCompanyId(e.target.value)}
+                              >
+                                <option value="">
+                                  {editArea ? `Semua perusahaan di ${editArea}` : 'Pilih area terlebih dahulu'}
+                                </option>
+                                {editCompanies.map((c) => (
+                                  <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          <div className="mt-4 flex justify-end gap-2">
+                            <button
+                              onClick={() => saveEdit(u.id)}
+                              disabled={isPending}
+                              className="btn-secondary !px-3 !py-1.5 text-xs"
+                            >
+                              {isPending ? 'Menyimpan...' : 'Simpan'}
+                            </button>
+                            <button onClick={resetRowState} className="btn-ghost !px-3 !py-1.5 text-xs">
+                              Batal
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {isActive && activeMode === 'password' && (
+                      <tr className="bg-brand-50/30">
+                        <td colSpan={6} className="px-4 pb-4 pt-1">
+                          <div className="max-w-sm">
+                            <label className="label">Kata Sandi Baru</label>
+                            <input
+                              type="password"
+                              className="input"
+                              placeholder="Minimal 6 karakter"
+                              value={passwordValue}
+                              onChange={(e) => setPasswordValue(e.target.value)}
+                              autoFocus
+                            />
+                          </div>
+                          <div className="mt-4 flex justify-end gap-2">
+                            <button
+                              onClick={() => savePassword(u.id)}
+                              disabled={isPending}
+                              className="btn-secondary !px-3 !py-1.5 text-xs"
+                            >
+                              {isPending ? 'Menyimpan...' : 'Simpan'}
+                            </button>
+                            <button onClick={resetRowState} className="btn-ghost !px-3 !py-1.5 text-xs">
+                              Batal
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                     {isActive && activeMode === 'access' && (
                       <tr className="bg-brand-50/30">
                         <td colSpan={6} className="px-5 py-4">
-                          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6">
                             <div>
                               <div className="mb-2 flex items-center justify-between">
                                 <p className="text-xs font-semibold text-ink">Akses Perusahaan</p>
@@ -645,22 +770,52 @@ export default function UserAdministration() {
                                   </button>
                                 </div>
                               </div>
-                              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                                {companies.map((c) => (
-                                  <label key={c.id} className="flex items-center gap-2 text-sm text-ink">
-                                    <input
-                                      type="checkbox"
-                                      checked={companyIdsDraft.includes(c.id)}
-                                      onChange={() => toggleDraftId(companyIdsDraft, setCompanyIdsDraft, c.id)}
-                                      className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                                    />
-                                    {c.name}
-                                  </label>
-                                ))}
+                              <div className="space-y-4">
+                                {AREAS.map((area) => {
+                                  const areaList = companiesInArea(companies, area)
+                                  if (areaList.length === 0) return null
+                                  const areaIds = areaList.map((c) => c.id)
+                                  return (
+                                    <div key={area}>
+                                      <div className="mb-1.5 flex items-center justify-between border-b border-gray-200 pb-1">
+                                        <p className="text-[11px] font-bold uppercase tracking-wide text-ink-light">{area}</p>
+                                        <div className="flex gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => setCompanyIdsDraft((d) => [...new Set([...d, ...areaIds])])}
+                                            className="text-[11px] font-medium text-brand-600 hover:text-brand-700"
+                                          >
+                                            Pilih area
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setCompanyIdsDraft((d) => d.filter((id) => !areaIds.includes(id)))}
+                                            className="text-[11px] font-medium text-ink-light hover:text-ink"
+                                          >
+                                            Kosongkan
+                                          </button>
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-1 gap-1.5">
+                                        {areaList.map((c) => (
+                                          <label key={c.id} className="flex items-center gap-2 text-sm text-ink">
+                                            <input
+                                              type="checkbox"
+                                              checked={companyIdsDraft.includes(c.id)}
+                                              onChange={() => toggleDraftId(companyIdsDraft, setCompanyIdsDraft, c.id)}
+                                              className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                                            />
+                                            {c.name}
+                                          </label>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
                               </div>
                             </div>
 
-                            <div>
+                            <div className="border-t border-gray-200 pt-5 sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0">
                               <div className="mb-2 flex items-center justify-between">
                                 <p className="text-xs font-semibold text-ink">Akses Kategori</p>
                                 <div className="flex gap-2">

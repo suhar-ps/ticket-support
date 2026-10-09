@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import LoadingSpinner from '../components/LoadingSpinner'
+import { AREAS, companiesInArea } from '../lib/areas'
 
-const EMPTY_FORM = { companyId: '', categoryId: '', contactUserId: '' }
+const EMPTY_FORM = { area: AREAS[0], companyId: '', categoryId: '', contactUserId: '' }
 const CONTACT_ROLES = ['support', 'supervisor', 'superadmin']
 
 function contactDisplayName(c) {
@@ -20,6 +21,7 @@ export default function SupportContacts() {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState('')
+  const [areaFilter, setAreaFilter] = useState('all')
   const [companyFilter, setCompanyFilter] = useState('all')
 
   const [showAddForm, setShowAddForm] = useState(false)
@@ -42,7 +44,7 @@ export default function SupportContacts() {
         .select(
           'id, company_id, category_id, contact_user_id, contact_name, companies(name), categories(name), linked_user:profiles(full_name, whatsapp_number)'
         ),
-      supabase.from('companies').select('id, name').order('name'),
+      supabase.from('companies').select('id, name, area').order('name'),
       supabase.from('categories').select('id, name').order('name'),
       supabase.rpc('list_users_for_admin'),
     ])
@@ -68,14 +70,40 @@ export default function SupportContacts() {
 
   useEffect(() => {
     if (companies.length && categories.length && !form.companyId) {
-      setForm((f) => ({ ...f, companyId: companies[0].id, categoryId: categories[0].id }))
+      const first = companiesInArea(companies, form.area)[0] || companies[0]
+      setForm((f) => ({ ...f, area: first.area, companyId: first.id, categoryId: categories[0].id }))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companies, categories])
 
-  // Filter perusahaan, lalu urut Perusahaan → Kategori → Nama Kontak.
+  // Daftar perusahaan untuk filter mengikuti area yang dipilih.
+  const filterCompanies = areaFilter === 'all' ? companies : companiesInArea(companies, areaFilter)
+  // Daftar perusahaan di form tambah mengikuti area yang dipilih di form.
+  const formCompanies = companiesInArea(companies, form.area)
+
+  const areaByCompanyId = useMemo(
+    () => Object.fromEntries(companies.map((c) => [c.id, c.area])),
+    [companies]
+  )
+
+  function changeAreaFilter(area) {
+    setAreaFilter(area)
+    // Perusahaan yang sedang difilter tapi bukan di area baru -> kembali ke "Semua".
+    if (area !== 'all' && companyFilter !== 'all' && areaByCompanyId[companyFilter] !== area) {
+      setCompanyFilter('all')
+    }
+  }
+
+  function changeFormArea(area) {
+    const first = companiesInArea(companies, area)[0]
+    setForm((f) => ({ ...f, area, companyId: first ? first.id : '' }))
+  }
+
+  // Filter area & perusahaan, lalu urut Perusahaan → Kategori → Nama Kontak.
   const sortedContacts = useMemo(() => {
-    const filtered = companyFilter === 'all' ? contacts : contacts.filter((c) => c.company_id === companyFilter)
+    let filtered = contacts
+    if (areaFilter !== 'all') filtered = filtered.filter((c) => areaByCompanyId[c.company_id] === areaFilter)
+    if (companyFilter !== 'all') filtered = filtered.filter((c) => c.company_id === companyFilter)
     return [...filtered].sort((a, b) => {
       const byCompany = (a.companies?.name || '').localeCompare(b.companies?.name || '')
       if (byCompany !== 0) return byCompany
@@ -83,7 +111,7 @@ export default function SupportContacts() {
       if (byCategory !== 0) return byCategory
       return contactDisplayName(a).localeCompare(contactDisplayName(b))
     })
-  }, [contacts, companyFilter])
+  }, [contacts, areaFilter, companyFilter, areaByCompanyId])
 
   async function handleAdd(e) {
     e.preventDefault()
@@ -214,28 +242,52 @@ export default function SupportContacts() {
 
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <select
+          aria-label="Filter Area"
+          className="input sm:max-w-[10rem]"
+          value={areaFilter}
+          onChange={(e) => changeAreaFilter(e.target.value)}
+        >
+          <option value="all">Semua Area</option>
+          {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <select
+          aria-label="Filter Perusahaan"
           className="input sm:max-w-xs"
           value={companyFilter}
           onChange={(e) => setCompanyFilter(e.target.value)}
         >
-          <option value="all">Semua Perusahaan</option>
-          {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          <option value="all">
+            {areaFilter === 'all' ? 'Semua Perusahaan' : `Semua Perusahaan di ${areaFilter}`}
+          </option>
+          {filterCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </div>
 
       {showAddForm && (
         <form onSubmit={handleAdd} className="card mb-6 space-y-4 p-6">
           <h2 className="font-display text-sm font-bold text-ink">Tambah Kontak</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <label className="label" htmlFor="addArea">Area</label>
+              <select
+                id="addArea"
+                className="input"
+                value={form.area}
+                onChange={(e) => changeFormArea(e.target.value)}
+              >
+                {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
             <div>
               <label className="label" htmlFor="addCompany">Perusahaan</label>
               <select
                 id="addCompany"
+                required
                 className="input"
                 value={form.companyId}
                 onChange={(e) => setForm((f) => ({ ...f, companyId: e.target.value }))}
               >
-                {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {formCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div>
@@ -249,7 +301,7 @@ export default function SupportContacts() {
                 {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <div className="sm:col-span-2">
+            <div className="sm:col-span-3">
               <label className="label" htmlFor="addFromUser">Pengguna Penanggung Jawab</label>
               <select
                 id="addFromUser"

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { combinePhoneNumber, COUNTRY_CODES } from '../lib/whatsapp'
+import { AREAS, companiesInArea } from '../lib/areas'
 
 // Role awal SELALU 'user' — pendaftaran publik tidak pernah membuat
 // akun Support/Supervisor. Kenaikan role hanya dilakukan oleh Super
@@ -15,6 +16,7 @@ export default function Register() {
     fullName: '',
     email: '',
     password: '',
+    area: '',
     defaultCompanyId: '',
     countryCode: COUNTRY_CODES[0].code,
     phoneNumber: '',
@@ -26,13 +28,19 @@ export default function Register() {
   useEffect(() => {
     supabase
       .from('companies')
-      .select('id, name')
+      .select('id, name, area')
       .order('name')
-      .then(({ data }) => {
-        setCompanies(data || [])
-        if (data?.length) setForm((f) => ({ ...f, defaultCompanyId: data[0].id }))
-      })
+      .then(({ data }) => setCompanies(data || []))
   }, [])
+
+  // Perusahaan yang ditawarkan bergantung pada area yang dipilih.
+  const areaCompanies = companiesInArea(companies, form.area)
+
+  // Ganti area -> pilihan perusahaan sebelumnya otomatis dikosongkan,
+  // supaya tidak ada kombinasi area & perusahaan yang tidak cocok.
+  function changeArea(area) {
+    setForm((f) => ({ ...f, area, defaultCompanyId: '' }))
+  }
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -50,6 +58,10 @@ export default function Register() {
     const whatsappNumber = combinePhoneNumber(form.countryCode, form.phoneNumber)
     if (!whatsappNumber) {
       setError('Nomor WhatsApp wajib diisi.')
+      return
+    }
+    if (!form.area || !form.defaultCompanyId) {
+      setError('Area dan perusahaan wajib dipilih.')
       return
     }
 
@@ -73,7 +85,8 @@ export default function Register() {
         data: {
           full_name: form.fullName,
           role: DEFAULT_ROLE,
-          default_company_id: form.defaultCompanyId || null,
+          area: form.area,
+          default_company_id: form.defaultCompanyId,
           whatsapp_number: whatsappNumber,
         },
       },
@@ -102,7 +115,8 @@ export default function Register() {
           id: userId,
           full_name: form.fullName,
           role: DEFAULT_ROLE,
-          default_company_id: form.defaultCompanyId || null,
+          area: form.area,
+          default_company_id: form.defaultCompanyId,
           whatsapp_number: whatsappNumber,
         },
         { onConflict: 'id' }
@@ -194,14 +208,35 @@ export default function Register() {
           </div>
 
           <div>
+            <label className="label" htmlFor="area">Area</label>
+            <select
+              id="area"
+              required
+              className="input"
+              value={form.area}
+              onChange={(e) => changeArea(e.target.value)}
+            >
+              <option value="" disabled>Pilih area...</option>
+              {AREAS.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
             <label className="label" htmlFor="defaultCompany">Perusahaan Default</label>
             <select
               id="defaultCompany"
+              required
               className="input"
+              disabled={!form.area}
               value={form.defaultCompanyId}
               onChange={(e) => update('defaultCompanyId', e.target.value)}
             >
-              {companies.map((c) => (
+              <option value="" disabled>
+                {form.area ? 'Pilih perusahaan...' : 'Pilih area terlebih dahulu'}
+              </option>
+              {areaCompanies.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
