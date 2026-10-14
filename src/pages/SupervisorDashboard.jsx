@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import * as XLSX from 'xlsx-js-style'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList,
 } from 'recharts'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
@@ -10,6 +10,8 @@ import { fetchVisibleCompaniesAndCategories } from '../lib/access'
 import LoadingSpinner from '../components/LoadingSpinner'
 import StatusBadge from '../components/StatusBadge'
 import PriorityBadge from '../components/PriorityBadge'
+import { companyRowStyle, companyColor } from '../lib/companyColors'
+import Icon from '../components/Icon'
 import { STATUSES, PRIORITIES, formatDateTime, labelFor } from '../data/constants'
 
 const STATUS_COLORS = {
@@ -167,12 +169,19 @@ export default function SupervisorDashboard() {
     }))
   }, [filtered, categories])
 
+  // Grafik per perusahaan mengikuti filter Perusahaan: "Semua Perusahaan"
+  // -> semua perusahaan yang terlihat, atau hanya perusahaan yang dipilih.
+  // Nama ditampilkan LENGKAP (tanpa dipotong).
   const byCompany = useMemo(() => {
-    return companies.map((c) => ({
-      name: c.name.replace('PT ', ''),
-      value: filtered.filter((t) => t.company_id === c.id).length,
-    }))
-  }, [filtered, companies])
+    return companies
+      .filter((c) => companyFilter === 'all' || c.id === companyFilter)
+      .map((c) => ({
+        name: c.name,
+        // Warna bar mengikuti kode warna unik perusahaan (aksen yang pekat).
+        color: companyColor(c.name).accent,
+        value: filtered.filter((t) => t.company_id === c.id).length,
+      }))
+  }, [filtered, companies, companyFilter])
 
   // Ambil catatan perbaikan TERAKHIR (non-kosong) per tiket dari
   // ticket_updates — untuk kolom "Catatan Perbaikan" di ekspor, karena
@@ -332,7 +341,8 @@ export default function SupervisorDashboard() {
             onChange={(e) => setDateTo(e.target.value)}
           />
         </div>
-        <button type="button" onClick={resetDateRange} className="btn-ghost text-xs">
+        <button type="button" onClick={resetDateRange} className="btn-ghost text-xs inline-flex items-center gap-1.5">
+          <Icon name="calendar-check" />
           Bulan Ini
         </button>
         <select className="input sm:max-w-xs" value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
@@ -343,9 +353,10 @@ export default function SupervisorDashboard() {
           type="button"
           onClick={handleSaveDefaultCompany}
           disabled={savingDefault}
-          className="btn-ghost text-xs"
+          className="btn-ghost text-xs inline-flex items-center gap-1.5"
           title="Jadikan perusahaan yang sedang dipilih sebagai tampilan default Anda setiap kali membuka menu ini"
         >
+          <Icon name="star" />
           {savingDefault ? 'Menyimpan...' : defaultSaved ? 'Tersimpan ✓' : 'Jadikan Default'}
         </button>
         <select className="input sm:max-w-xs" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
@@ -426,13 +437,27 @@ export default function SupervisorDashboard() {
 
         <div className="card p-5 lg:col-span-2">
           <h2 className="mb-3 font-display text-sm font-bold text-ink">Tiket per Perusahaan</h2>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={byCompany} margin={{ left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EEF2F0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Bar dataKey="value" fill="#5A9F8B" radius={[6, 6, 0, 0]} />
+          {/* Bar horizontal: nama perusahaan di sisi kiri, tidak terpotong
+              atau terlewati berapa pun jumlah perusahaannya. Tinggi grafik
+              menyesuaikan jumlah perusahaan yang ditampilkan. */}
+          <ResponsiveContainer width="100%" height={Math.max(180, byCompany.length * 40 + 30)}>
+            <BarChart data={byCompany} layout="vertical" margin={{ top: 0, right: 32, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#EEF2F0" />
+              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={200}
+                interval={0}
+                tick={{ fontSize: 11 }}
+              />
+              <Tooltip cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
+              <Bar dataKey="value" name="Jumlah tiket" radius={[0, 6, 6, 0]} barSize={22}>
+                {byCompany.map((entry) => (
+                  <Cell key={entry.name} fill={entry.color} />
+                ))}
+                <LabelList dataKey="value" position="right" style={{ fontSize: 11, fill: '#374151' }} />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -464,7 +489,8 @@ export default function SupervisorDashboard() {
                   <tr
                     key={t.id}
                     onClick={() => navigate(`/tickets/${t.id}`)}
-                    className="cursor-pointer hover:bg-brand-50/40"
+                    style={companyRowStyle(t.companies?.name)}
+                    className="cursor-pointer hover:brightness-95"
                     title="Klik untuk lihat detail tiket"
                   >
                     <td className="whitespace-nowrap px-5 py-3 font-mono text-xs text-brand-600">{t.ticket_number}</td>

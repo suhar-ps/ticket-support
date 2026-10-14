@@ -4,7 +4,17 @@ import { useAuth } from '../context/AuthContext'
 import { fetchVisibleCompaniesAndCategories } from '../lib/access'
 import TicketCard from '../components/TicketCard'
 import LoadingSpinner from '../components/LoadingSpinner'
+import Icon from '../components/Icon'
 import { STATUSES, PRIORITIES } from '../data/constants'
+
+// "YYYY-MM" dari komponen tanggal LOKAL (bukan toISOString, yang memakai
+// UTC dan bisa menggeser bulan di sekitar tengah malam WIB).
+function monthKey(date) {
+  const d = new Date(date)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+const isActiveStatus = (status) => !['resolved', 'closed'].includes(status)
 
 export default function SupportDashboard() {
   const { profile } = useAuth()
@@ -17,6 +27,8 @@ export default function SupportDashboard() {
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [companyFilter, setCompanyFilter] = useState('all')
+  // Default: bulan sesuai tanggal sistem. Kosong ('') = semua bulan.
+  const [month, setMonth] = useState(() => monthKey(new Date()))
 
   useEffect(() => {
     let active = true
@@ -47,8 +59,20 @@ export default function SupportDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const filtered = useMemo(() => {
+  // Tiket yang masuk cakupan bulan terpilih:
+  //  - dibuat di bulan itu, ATAU
+  //  - belum Selesai/Ditutup dan dibuat pada bulan itu atau sebelumnya
+  //    (tiket aktif dari bulan lalu tetap muncul sampai selesai).
+  const scoped = useMemo(() => {
+    if (!month) return tickets
     return tickets.filter((t) => {
+      const created = monthKey(t.created_at)
+      return created === month || (isActiveStatus(t.status) && created < month)
+    })
+  }, [tickets, month])
+
+  const filtered = useMemo(() => {
+    return scoped.filter((t) => {
       if (statusFilter !== 'all' && t.status !== statusFilter) return false
       if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false
       if (categoryFilter !== 'all' && t.category_id !== categoryFilter) return false
@@ -64,12 +88,13 @@ export default function SupportDashboard() {
       }
       return true
     })
-  }, [tickets, statusFilter, priorityFilter, categoryFilter, companyFilter, search])
+  }, [scoped, statusFilter, priorityFilter, categoryFilter, companyFilter, search])
 
-  const openCount = tickets.filter((t) => t.status === 'open').length
-  const inProgressCount = tickets.filter((t) => t.status === 'in_progress').length
-  const pendingCount = tickets.filter((t) => t.status === 'pending').length
-  const urgentCount = tickets.filter((t) => t.priority === 'urgent' && !['resolved', 'closed'].includes(t.status)).length
+  // Kartu ringkasan mengikuti cakupan bulan, supaya angkanya sama dengan daftar.
+  const openCount = scoped.filter((t) => t.status === 'open').length
+  const inProgressCount = scoped.filter((t) => t.status === 'in_progress').length
+  const pendingCount = scoped.filter((t) => t.status === 'pending').length
+  const urgentCount = scoped.filter((t) => t.priority === 'urgent' && isActiveStatus(t.status)).length
 
   return (
     <div>
@@ -85,7 +110,7 @@ export default function SupportDashboard() {
         <SummaryStat label="Prioritas Mendesak (belum selesai)" value={urgentCount} tone="red" />
       </div>
 
-      <div className="card mb-5 flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+      <div className="card mb-5 flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center">
         <input
           className="input sm:max-w-xs"
           placeholder="Cari nomor tiket, judul, aset, pelapor..."
@@ -108,7 +133,28 @@ export default function SupportDashboard() {
           <option value="all">Semua Perusahaan</option>
           {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor="monthFilter" className="text-xs font-medium text-ink-light">Bulan</label>
+          <input
+            id="monthFilter"
+            type="month"
+            className="input sm:max-w-[11rem]"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+          />
+          <button type="button" onClick={() => setMonth(monthKey(new Date()))} className="btn-ghost !px-2.5 !py-1 text-xs inline-flex items-center gap-1.5">
+            <Icon name="calendar-check" />
+            Bulan Ini
+          </button>
+          <button type="button" onClick={() => setMonth('')} className="btn-ghost !px-2.5 !py-1 text-xs inline-flex items-center gap-1.5">
+            <Icon name="calendar-range" />
+            Semua Bulan
+          </button>
+        </div>
       </div>
+      <p className="-mt-3 mb-5 text-xs text-ink-light">
+        Tiket yang belum Selesai/Ditutup dari bulan sebelumnya tetap ditampilkan.
+      </p>
 
       {loading ? (
         <LoadingSpinner label="Memuat antrian tiket..." />

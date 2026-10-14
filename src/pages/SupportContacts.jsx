@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import LoadingSpinner from '../components/LoadingSpinner'
+import Icon from '../components/Icon'
 import { AREAS, companiesInArea } from '../lib/areas'
+import { companyRowStyle } from '../lib/companyColors'
 
 const EMPTY_FORM = { area: AREAS[0], companyId: '', categoryId: '', contactUserId: '' }
 const CONTACT_ROLES = ['support', 'supervisor', 'superadmin']
+// Role yang boleh dipilih sebagai penanggung jawab di form kontak.
+const RESPONSIBLE_ROLES = ['support', 'supervisor']
 
 function contactDisplayName(c) {
   return c.contact_user_id ? (c.linked_user?.full_name || c.contact_name || '') : (c.contact_name || '')
@@ -94,9 +98,31 @@ export default function SupportContacts() {
     }
   }
 
+  // Penanggung jawab: hanya pengguna role Tim Support atau Supervisor yang
+  // areanya sama dengan area terpilih. Yang belum punya area (belum diisi
+  // di Administrasi Pengguna) tidak ditampilkan — dihitung terpisah untuk
+  // peringatan.
+  const supportUsers = useMemo(() => users.filter((u) => RESPONSIBLE_ROLES.includes(u.role)), [users])
+  const formUsers = supportUsers.filter((u) => u.area === form.area)
+  const supportWithoutArea = supportUsers.filter((u) => !u.area).length
+
+  // Untuk baris yang sedang diedit: area mengikuti perusahaan kontak itu.
+  // Pengguna yang saat ini tertaut (atau sedang dipilih) selalu tetap ada
+  // di daftar supaya pilihannya tidak hilang.
+  function usersForEdit(c) {
+    const area = areaByCompanyId[c.company_id]
+    return users.filter(
+      (u) =>
+        u.id === c.contact_user_id ||
+        u.id === editForm.contactUserId ||
+        (RESPONSIBLE_ROLES.includes(u.role) && u.area === area)
+    )
+  }
+
   function changeFormArea(area) {
     const first = companiesInArea(companies, area)[0]
-    setForm((f) => ({ ...f, area, companyId: first ? first.id : '' }))
+    // Ganti area -> penanggung jawab dikosongkan (daftarnya ikut berubah).
+    setForm((f) => ({ ...f, area, companyId: first ? first.id : '', contactUserId: '' }))
   }
 
   // Filter area & perusahaan, lalu urut Perusahaan → Kategori → Nama Kontak.
@@ -310,8 +336,10 @@ export default function SupportContacts() {
                 value={form.contactUserId}
                 onChange={(e) => setForm((f) => ({ ...f, contactUserId: e.target.value }))}
               >
-                <option value="">— Pilih pengguna —</option>
-                {users.map((u) => (
+                <option value="">
+                  {formUsers.length === 0 ? `— Tidak ada Tim Support/Supervisor di area ${form.area} —` : '— Pilih pengguna —'}
+                </option>
+                {formUsers.map((u) => (
                   <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
                 ))}
               </select>
@@ -330,11 +358,17 @@ export default function SupportContacts() {
                 </p>
               )}
               <p className="mt-1.5 text-xs text-ink-light">
-                Hanya menampilkan pengguna dengan role Tim Support, Supervisor, atau Super Admin.
+                Hanya menampilkan pengguna dengan role Tim Support atau Supervisor di area {form.area}.
                 Nomor WhatsApp yang dipakai untuk notifikasi selalu mengikuti data terkini di
                 profil pengguna ini — kalau nomornya berubah nanti, otomatis ikut ter-update
                 tanpa perlu diedit di sini.
               </p>
+              {supportWithoutArea > 0 && (
+                <p className="mt-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  {supportWithoutArea} pengguna Tim Support/Supervisor belum punya area sehingga tidak muncul di
+                  daftar ini — isi area-nya lewat Administrasi Pengguna &gt; Edit.
+                </p>
+              )}
             </div>
           </div>
 
@@ -373,7 +407,11 @@ export default function SupportContacts() {
                   const isEditing = editingId === c.id
                   const isPending = rowPendingId === c.id
                   return (
-                    <tr key={c.id} className="hover:bg-brand-50/30">
+                    <tr
+                      key={c.id}
+                      style={companyRowStyle(c.companies?.name)}
+                      className="hover:brightness-95"
+                    >
                       <td className="px-5 py-3 text-ink">{c.companies?.name}</td>
                       <td className="px-5 py-3 text-ink-light">{c.categories?.name}</td>
                       <td className="px-5 py-3 text-ink">
@@ -384,7 +422,7 @@ export default function SupportContacts() {
                             onChange={(e) => setEditForm((f) => ({ ...f, contactUserId: e.target.value }))}
                           >
                             <option value="">— Pilih pengguna —</option>
-                            {users.map((u) => (
+                            {usersForEdit(c).map((u) => (
                               <option key={u.id} value={u.id}>{u.full_name}</option>
                             ))}
                           </select>
@@ -414,11 +452,13 @@ export default function SupportContacts() {
                               <button
                                 onClick={() => saveEdit(c.id)}
                                 disabled={isPending}
-                                className="btn-secondary !px-2.5 !py-1 text-xs"
+                                className="btn-secondary !px-2.5 !py-1 text-xs inline-flex items-center gap-1.5"
                               >
+                                <Icon name="save" />
                                 {isPending ? 'Menyimpan...' : 'Simpan'}
                               </button>
-                              <button onClick={cancelEdit} className="btn-ghost !px-2.5 !py-1 text-xs">
+                              <button onClick={cancelEdit} className="btn-ghost !px-2.5 !py-1 text-xs inline-flex items-center gap-1.5">
+                                <Icon name="x" />
                                 Batal
                               </button>
                             </>
@@ -438,13 +478,15 @@ export default function SupportContacts() {
                             </>
                           ) : (
                             <>
-                              <button onClick={() => startEdit(c)} className="btn-ghost !px-2.5 !py-1 text-xs">
+                              <button onClick={() => startEdit(c)} className="btn-ghost !px-2.5 !py-1 text-xs inline-flex items-center gap-1.5">
+                                <Icon name="pencil" />
                                 Edit
                               </button>
                               <button
                                 onClick={() => setConfirmDeleteId(c.id)}
-                                className="btn-ghost !px-2.5 !py-1 text-xs text-red-600 hover:bg-red-50"
+                                className="btn-ghost !px-2.5 !py-1 text-xs text-red-600 hover:bg-red-50 inline-flex items-center gap-1.5"
                               >
+                                <Icon name="trash" />
                                 Hapus
                               </button>
                             </>

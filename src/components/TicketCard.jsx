@@ -2,12 +2,18 @@ import { Link } from 'react-router-dom'
 import StatusBadge from './StatusBadge'
 import PriorityBadge from './PriorityBadge'
 import { formatDateTime } from '../data/constants'
+import { companyCardStyle } from '../lib/companyColors'
 
 export default function TicketCard({ ticket, showRequester = false, showCompany = false, linkState }) {
+  // Semua kartu tiket (Antrian Support maupun Tiket Saya) diberi warna
+  // latar sesuai perusahaan tiketnya.
+  const tint = companyCardStyle(ticket.companies?.name)
+
   return (
     <Link
       to={`/tickets/${ticket.id}`}
       state={linkState}
+      style={tint}
       className="card block overflow-hidden transition-shadow hover:shadow-md"
     >
       <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start sm:justify-between">

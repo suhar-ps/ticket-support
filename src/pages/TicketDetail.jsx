@@ -6,6 +6,7 @@ import StatusBadge from '../components/StatusBadge'
 import PriorityBadge from '../components/PriorityBadge'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { STATUSES, formatDateTime, labelFor } from '../data/constants'
+import { companyCardStyle } from '../lib/companyColors'
 
 export default function TicketDetail() {
   const { id } = useParams()
@@ -16,6 +17,7 @@ export default function TicketDetail() {
   const [ticket, setTicket] = useState(null)
   const [updates, setUpdates] = useState([])
   const [supportAgents, setSupportAgents] = useState([])
+  const [assigneeFallback, setAssigneeFallback] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -98,15 +100,48 @@ export default function TicketDetail() {
 
   useEffect(() => { load() }, [load])
 
+  // Pilihan "Ditugaskan ke" = pengguna yang tercatat sebagai penanggung
+  // jawab di Kontak Support untuk PERUSAHAAN tiket ini. Tabel
+  // support_contacts hanya bisa dibaca Super Admin, jadi dibaca lewat
+  // fungsi get_assignee_options (supabase/add_assignee_options.sql).
+  // Kalau perusahaan ini belum punya kontak (atau fungsinya belum
+  // dipasang), daftar jatuh kembali ke semua staf supaya tiket tetap
+  // bisa ditugaskan.
+  const ticketCompanyId = ticket?.company_id
   useEffect(() => {
-    if (showManagementForm) {
-      supabase
+    if (!showManagementForm || !ticketCompanyId) return undefined
+    let cancelled = false
+
+    async function loadAgents() {
+      const { data: contactUsers, error: rpcError } = await supabase.rpc('get_assignee_options', {
+        p_company_id: ticketCompanyId,
+      })
+      if (cancelled) return
+      if (!rpcError && contactUsers && contactUsers.length > 0) {
+        setSupportAgents(contactUsers)
+        setAssigneeFallback(false)
+        return
+      }
+      const { data: allStaff } = await supabase
         .from('profiles')
         .select('id, full_name')
         .in('role', ['support', 'supervisor', 'superadmin'])
-        .then(({ data }) => setSupportAgents(data || []))
+        .order('full_name')
+      if (cancelled) return
+      setSupportAgents(allStaff || [])
+      setAssigneeFallback(true)
     }
-  }, [showManagementForm])
+
+    loadAgents()
+    return () => { cancelled = true }
+  }, [showManagementForm, ticketCompanyId])
+
+  // Penanggung jawab yang sudah tersimpan di tiket selalu ikut tampil,
+  // walaupun sudah tidak ada di Kontak Support perusahaan ini.
+  const assigneeOptions =
+    ticket?.assigned_to && !supportAgents.some((a) => a.id === ticket.assigned_to)
+      ? [...supportAgents, { id: ticket.assigned_to, full_name: ticket.assignee?.full_name || 'Penanggung jawab saat ini' }]
+      : supportAgents
 
   // Menentukan siapa yang dikirimi notifikasi WhatsApp:
   // - Kalau nama pengguna yang login SAMA dengan nama pelapor tiket ini
@@ -278,7 +313,8 @@ export default function TicketDetail() {
         ← Kembali
       </button>
 
-      <div className="card overflow-hidden">
+      {/* Seluruh kartu tiket diberi warna latar sesuai perusahaannya. */}
+      <div className="card overflow-hidden" style={companyCardStyle(ticket.companies?.name)}>
         <div className="p-6">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <span className="font-mono text-sm font-semibold text-brand-600">{ticket.ticket_number}</span>
@@ -375,7 +411,7 @@ export default function TicketDetail() {
 
         {/* Support actions */}
         {showManagementForm && (
-          <form onSubmit={handleSupportSave} className="border-t border-gray-100 bg-brand-50/40 p-6">
+          <form onSubmit={handleSupportSave} className="border-t border-black/5 bg-white/60 p-6">
             <h2 className="mb-3 font-display text-sm font-bold text-ink">Perbarui Tiket</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
@@ -388,10 +424,15 @@ export default function TicketDetail() {
                 <label className="label">Ditugaskan ke</label>
                 <select className="input" value={assigneeDraft} onChange={(e) => setAssigneeDraft(e.target.value)}>
                   <option value="">Belum ditugaskan</option>
-                  {supportAgents.map((a) => (
+                  {assigneeOptions.map((a) => (
                     <option key={a.id} value={a.id}>{a.full_name}{a.id === user.id ? ' (Saya)' : ''}</option>
                   ))}
                 </select>
+                <p className="mt-1 text-xs text-ink-light">
+                  {assigneeFallback
+                    ? `Belum ada Kontak Support untuk ${ticket.companies?.name || 'perusahaan ini'} — menampilkan semua staf.`
+                    : `Sesuai Kontak Support ${ticket.companies?.name || 'perusahaan ini'}.`}
+                </p>
               </div>
             </div>
             <div className="mt-4">

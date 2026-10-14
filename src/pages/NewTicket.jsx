@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { fetchVisibleCompaniesAndCategories } from '../lib/access'
 import { PRIORITIES, labelFor } from '../data/constants'
+import { companyCardStyle } from '../lib/companyColors'
+import Icon from '../components/Icon'
 
 export default function NewTicket() {
   const { user, profile, refreshProfile } = useAuth()
@@ -144,14 +146,20 @@ export default function NewTicket() {
         Jelaskan gangguan atau kebutuhan Anda selengkap mungkin agar tim support dapat menindaklanjuti dengan cepat.
       </p>
 
-      <form onSubmit={handleSubmit} className="card space-y-5 p-6">
+      <form
+        onSubmit={handleSubmit}
+        // Warna latar form mengikuti perusahaan yang sedang dipilih dan
+        // berganti otomatis (dengan transisi halus) saat pilihan diganti.
+        style={companyCardStyle(companies.find((c) => c.id === form.companyId)?.name)}
+        className="card space-y-5 p-6 transition-colors duration-300"
+      >
         <div>
           <label className="label" htmlFor="title">Judul Masalah</label>
           <input
             id="title"
             required
             className="input"
-            placeholder="cth. Laptop tidak bisa menyala"
+            placeholder="cth. Keran wastafel bocor"
             value={form.title}
             onChange={(e) => update('title', e.target.value)}
           />
@@ -164,9 +172,10 @@ export default function NewTicket() {
               type="button"
               onClick={handleSaveDefaultCompany}
               disabled={savingDefault || !form.companyId}
-              className="mb-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 disabled:opacity-40"
+              className="mb-1.5 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 disabled:opacity-40"
               title="Jadikan perusahaan yang dipilih sebagai default setiap kali membuat tiket baru"
             >
+              <Icon name="star" />
               {savingDefault ? 'Menyimpan...' : defaultSaved ? 'Tersimpan ✓' : 'Jadikan Default'}
             </button>
           </div>
@@ -208,27 +217,16 @@ export default function NewTicket() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label className="label" htmlFor="assetId">ID Aset / Plat Nomor (opsional)</label>
-            <input
-              id="assetId"
-              className="input"
-              placeholder="cth. PC-MKT-05 / B 1234 XY"
-              value={form.assetIdentifier}
-              onChange={(e) => update('assetIdentifier', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="location">Lokasi</label>
-            <input
-              id="location"
-              className="input"
-              placeholder="cth. Lt. 5 - Ruang Marketing"
-              value={form.location}
-              onChange={(e) => update('location', e.target.value)}
-            />
-          </div>
+        {/* Isian "ID Aset / Plat Nomor" disembunyikan; kolom asset_identifier tetap ada di database (dikirim null). */}
+        <div>
+          <label className="label" htmlFor="location">Lokasi</label>
+          <input
+            id="location"
+            className="input"
+            placeholder="cth. Lt. 5 - Ruang Marketing"
+            value={form.location}
+            onChange={(e) => update('location', e.target.value)}
+          />
         </div>
 
         <div>
@@ -272,10 +270,12 @@ export default function NewTicket() {
         </p>
 
         <div className="flex justify-end gap-3">
-          <button type="button" onClick={() => navigate(-1)} className="btn-ghost">
+          <button type="button" onClick={() => navigate(-1)} className="btn-ghost inline-flex items-center gap-2">
+            <Icon name="x" className="h-4 w-4" />
             Batal
           </button>
-          <button type="submit" disabled={loading} className="btn-primary">
+          <button type="submit" disabled={loading} className="btn-primary inline-flex items-center gap-2">
+            <Icon name="send" className="h-4 w-4" />
             {loading ? 'Mengirim...' : 'Kirim Tiket'}
           </button>
         </div>

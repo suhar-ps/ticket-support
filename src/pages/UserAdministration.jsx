@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import LoadingSpinner from '../components/LoadingSpinner'
+import Icon from '../components/Icon'
 import { ROLE_LABELS, formatDateTime } from '../data/constants'
 import { combinePhoneNumber, COUNTRY_CODES, normalizeWhatsappNumber, WHATSAPP_FORMAT_HINT } from '../lib/whatsapp'
 import { AREAS, companiesInArea } from '../lib/areas'
@@ -34,6 +35,8 @@ export default function UserAdministration() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
+  const [areaFilter, setAreaFilter] = useState('all')
+  const [companyFilter, setCompanyFilter] = useState('all')
   const [sortField, setSortField] = useState('created_at')
   const [sortDir, setSortDir] = useState('desc')
   const [listError, setListError] = useState('')
@@ -63,7 +66,7 @@ export default function UserAdministration() {
   async function load() {
     setLoading(true)
     setListError('')
-    const [{ data, error }, { data: companyData }, { data: categoryData }] = await Promise.all([
+    const [{ data, error }, { data: companyData, error: companyError }, { data: categoryData }] = await Promise.all([
       supabase.rpc('list_users_for_admin'),
       supabase.from('companies').select('id, name, area').order('name'),
       supabase.from('categories').select('id, name').order('name'),
@@ -72,6 +75,19 @@ export default function UserAdministration() {
       setListError(error.message)
     } else {
       setUsers(data || [])
+      // Database belum diperbarui: fungsi lama tidak mengembalikan kolom
+      // area, sehingga Area & Perusahaan akan selalu tampak kosong.
+      if (data?.length && !('area' in data[0])) {
+        setListError(
+          'Database belum diperbarui untuk fitur Area — jalankan supabase/add_area.sql di SQL Editor Supabase, lalu muat ulang halaman ini.'
+        )
+      }
+    }
+    if (companyError) {
+      setListError(
+        'Daftar perusahaan gagal dimuat (kolom area belum ada?) — jalankan supabase/add_area.sql di SQL Editor Supabase. ' +
+          companyError.message
+      )
     }
     setCompanies(companyData || [])
     setCategories(categoryData || [])
@@ -85,6 +101,12 @@ export default function UserAdministration() {
     if (roleFilter !== 'all') {
       list = list.filter((u) => u.role === roleFilter)
     }
+    if (areaFilter !== 'all') {
+      list = list.filter((u) => u.area === areaFilter)
+    }
+    if (companyFilter !== 'all') {
+      list = list.filter((u) => u.default_company_id === companyFilter)
+    }
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(
@@ -92,7 +114,7 @@ export default function UserAdministration() {
       )
     }
     return list
-  }, [users, roleFilter, search])
+  }, [users, roleFilter, areaFilter, companyFilter, search])
 
   const sorted = useMemo(() => {
     const list = [...filtered]
@@ -176,16 +198,51 @@ export default function UserAdministration() {
         default_company_id: newUser.defaultCompanyId || null,
       },
     })
-    setAddLoading(false)
 
     const message = error?.message || data?.error
     if (message) {
+      setAddLoading(false)
       setAddError(describeFunctionError(message))
       return
     }
 
+    // Akun sudah dibuat. Area & perusahaan disimpan LAGI di sini lewat
+    // fungsi database, tidak bergantung pada versi Edge Function atau
+    // trigger yang sedang aktif di Supabase — jadi pasti tersimpan.
+    let followUpError = ''
+    const newUserId = data?.user?.id
+    if (newUserId && (newUser.area || newUser.defaultCompanyId)) {
+      const { error: profileErr } = await supabase.rpc('admin_update_profile', {
+        target_user_id: newUserId,
+        new_full_name: newUser.fullName.trim(),
+        new_whatsapp_number: whatsappNumber,
+        new_area: newUser.area || null,
+        new_default_company_id: newUser.defaultCompanyId || null,
+      })
+      if (profileErr) {
+        followUpError = profileErr.message
+      } else {
+        // Akses perusahaan awal: perusahaan yang dipilih saja, atau semua
+        // perusahaan di area yang dipilih kalau perusahaan tidak dipilih.
+        const accessIds = newUser.defaultCompanyId
+          ? [newUser.defaultCompanyId]
+          : companiesInArea(companies, newUser.area).map((c) => c.id)
+        const { error: accessErr } = await supabase.rpc('admin_set_user_companies', {
+          target_user_id: newUserId,
+          company_ids: accessIds,
+        })
+        if (accessErr) followUpError = accessErr.message
+      }
+    }
+    setAddLoading(false)
+
     setNewUser(EMPTY_NEW_USER)
     setShowAddForm(false)
+    if (followUpError) {
+      setRowError(
+        `Akun berhasil dibuat, tetapi area/perusahaan belum tersimpan: ${followUpError}. Isi lewat tombol Edit.`
+      )
+    }
     await load()
   }
 
@@ -353,6 +410,16 @@ export default function UserAdministration() {
     () => Object.fromEntries(companies.map((c) => [c.id, c.name])),
     [companies]
   )
+  // Pilihan perusahaan di filter mengikuti area yang dipilih di filter.
+  const filterCompanies = areaFilter === 'all' ? companies : companiesInArea(companies, areaFilter)
+  function changeAreaFilter(area) {
+    setAreaFilter(area)
+    // Perusahaan yang sedang difilter tapi bukan di area baru -> kembali ke "Semua".
+    if (area !== 'all' && companyFilter !== 'all') {
+      const co = companies.find((c) => c.id === companyFilter)
+      if (!co || co.area !== area) setCompanyFilter('all')
+    }
+  }
   const newUserCompanies = companiesInArea(companies, newUser.area)
   const editCompanies = companiesInArea(companies, editArea)
 
@@ -521,6 +588,30 @@ export default function UserAdministration() {
             <option key={r} value={r}>{ROLE_LABELS[r]}</option>
           ))}
         </select>
+        <select
+          aria-label="Filter Area"
+          className="input sm:max-w-[10rem]"
+          value={areaFilter}
+          onChange={(e) => changeAreaFilter(e.target.value)}
+        >
+          <option value="all">Semua Area</option>
+          {AREAS.map((a) => (
+            <option key={a} value={a}>{a}</option>
+          ))}
+        </select>
+        <select
+          aria-label="Filter Perusahaan"
+          className="input sm:max-w-xs"
+          value={companyFilter}
+          onChange={(e) => setCompanyFilter(e.target.value)}
+        >
+          <option value="all">
+            {areaFilter === 'all' ? 'Semua Perusahaan' : `Semua Perusahaan di ${areaFilter}`}
+          </option>
+          {filterCompanies.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
       </div>
 
       {listError && (
@@ -627,20 +718,24 @@ export default function UserAdministration() {
                           </div>
                         ) : (
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <button onClick={() => startEdit(u)} className="btn-ghost !px-2.5 !py-1 text-xs">
+                            <button onClick={() => startEdit(u)} className="btn-ghost !px-2.5 !py-1 text-xs inline-flex items-center gap-1.5">
+                              <Icon name="pencil" />
                               Edit
                             </button>
-                            <button onClick={() => startPasswordEdit(u)} className="btn-ghost !px-2.5 !py-1 text-xs">
+                            <button onClick={() => startPasswordEdit(u)} className="btn-ghost !px-2.5 !py-1 text-xs inline-flex items-center gap-1.5">
+                              <Icon name="key" />
                               Ganti Password
                             </button>
-                            <button onClick={() => startAccessEdit(u)} className="btn-ghost !px-2.5 !py-1 text-xs">
+                            <button onClick={() => startAccessEdit(u)} className="btn-ghost !px-2.5 !py-1 text-xs inline-flex items-center gap-1.5">
+                              <Icon name="shield-check" />
                               Kelola Akses
                             </button>
                             <button
                               onClick={() => startDeleteConfirm(u)}
                               disabled={isSelf}
-                              className="btn-ghost !px-2.5 !py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
+                              className="btn-ghost !px-2.5 !py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40 inline-flex items-center gap-1.5"
                             >
+                              <Icon name="trash" />
                               Hapus
                             </button>
                             {successId === u.id && (
@@ -733,11 +828,13 @@ export default function UserAdministration() {
                             <button
                               onClick={() => saveEdit(u.id)}
                               disabled={isPending}
-                              className="btn-secondary !px-3 !py-1.5 text-xs"
+                              className="btn-secondary !px-3 !py-1.5 text-xs inline-flex items-center gap-1.5"
                             >
+                              <Icon name="save" />
                               {isPending ? 'Menyimpan...' : 'Simpan'}
                             </button>
-                            <button onClick={resetRowState} className="btn-ghost !px-3 !py-1.5 text-xs">
+                            <button onClick={resetRowState} className="btn-ghost !px-3 !py-1.5 text-xs inline-flex items-center gap-1.5">
+                              <Icon name="x" />
                               Batal
                             </button>
                           </div>
@@ -762,11 +859,13 @@ export default function UserAdministration() {
                             <button
                               onClick={() => savePassword(u.id)}
                               disabled={isPending}
-                              className="btn-secondary !px-3 !py-1.5 text-xs"
+                              className="btn-secondary !px-3 !py-1.5 text-xs inline-flex items-center gap-1.5"
                             >
+                              <Icon name="save" />
                               {isPending ? 'Menyimpan...' : 'Simpan'}
                             </button>
-                            <button onClick={resetRowState} className="btn-ghost !px-3 !py-1.5 text-xs">
+                            <button onClick={resetRowState} className="btn-ghost !px-3 !py-1.5 text-xs inline-flex items-center gap-1.5">
+                              <Icon name="x" />
                               Batal
                             </button>
                           </div>
@@ -892,11 +991,13 @@ export default function UserAdministration() {
                             <button
                               onClick={() => saveAccess(u.id)}
                               disabled={isPending}
-                              className="btn-secondary !px-3 !py-1.5 text-xs"
+                              className="btn-secondary !px-3 !py-1.5 text-xs inline-flex items-center gap-1.5"
                             >
+                              <Icon name="save" />
                               {isPending ? 'Menyimpan...' : 'Simpan Akses'}
                             </button>
-                            <button onClick={resetRowState} className="btn-ghost !px-3 !py-1.5 text-xs">
+                            <button onClick={resetRowState} className="btn-ghost !px-3 !py-1.5 text-xs inline-flex items-center gap-1.5">
+                              <Icon name="x" />
                               Batal
                             </button>
                           </div>
