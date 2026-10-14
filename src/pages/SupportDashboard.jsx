@@ -5,14 +5,8 @@ import { fetchVisibleCompaniesAndCategories } from '../lib/access'
 import TicketCard from '../components/TicketCard'
 import LoadingSpinner from '../components/LoadingSpinner'
 import Icon from '../components/Icon'
+import { monthKey, useMonthParam } from '../lib/useMonthParam'
 import { STATUSES, PRIORITIES } from '../data/constants'
-
-// "YYYY-MM" dari komponen tanggal LOKAL (bukan toISOString, yang memakai
-// UTC dan bisa menggeser bulan di sekitar tengah malam WIB).
-function monthKey(date) {
-  const d = new Date(date)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
 
 const isActiveStatus = (status) => !['resolved', 'closed'].includes(status)
 
@@ -28,7 +22,8 @@ export default function SupportDashboard() {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [companyFilter, setCompanyFilter] = useState('all')
   // Default: bulan sesuai tanggal sistem. Kosong ('') = semua bulan.
-  const [month, setMonth] = useState(() => monthKey(new Date()))
+  // Tersimpan di URL, jadi tetap terpilih setelah kembali dari detail tiket.
+  const [month, setMonth] = useMonthParam()
 
   useEffect(() => {
     let active = true
@@ -163,7 +158,7 @@ export default function SupportDashboard() {
       ) : (
         <div className="space-y-3">
           {filtered.map((t) => (
-            <TicketCard key={t.id} ticket={t} showRequester showCompany linkState={{ origin: 'queue' }} />
+            <TicketCard key={t.id} ticket={t} showRequester showCompany showCaptions linkState={{ origin: 'queue' }} />
           ))}
         </div>
       )}

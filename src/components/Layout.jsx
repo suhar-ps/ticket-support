@@ -154,16 +154,18 @@ export default function Layout({ children }) {
             </nav>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden text-right sm:block">
-              <p className="text-sm font-semibold text-ink leading-tight">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            {/* Nama & role pengguna yang login — tampil juga di mobile
+                (teks dipotong "…" kalau nama terlalu panjang). */}
+            <div className="min-w-0 max-w-[8.5rem] text-right sm:max-w-none">
+              <p className="truncate text-xs font-semibold leading-tight text-ink sm:text-sm">
                 {profile?.full_name || '...'}
               </p>
-              <p className="text-xs text-ink-light leading-tight">
+              <p className="truncate text-[11px] leading-tight text-ink-light sm:text-xs">
                 {ROLE_LABELS[profile?.role] || ''}
               </p>
             </div>
-            <button onClick={handleSignOut} className="btn-secondary !px-3 !py-2 text-xs">
+            <button onClick={handleSignOut} className="btn-secondary shrink-0 !px-3 !py-2 text-xs">
               Keluar
             </button>
           </div>

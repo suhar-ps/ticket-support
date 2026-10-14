@@ -7,15 +7,35 @@ import { PRIORITIES, labelFor } from '../data/constants'
 import { companyCardStyle } from '../lib/companyColors'
 import Icon from '../components/Icon'
 
+// Warna tombol Prioritas sesuai tingkat urgensi (selaras dengan
+// PriorityBadge): sebelum dipilih tampil berwarna lembut, saat dipilih
+// berubah menjadi warna penuh.
+const PRIORITY_BUTTON = {
+  low: {
+    idle: 'bg-gray-50 text-gray-600 ring-gray-300 hover:bg-gray-100',
+    active: 'bg-gray-500 text-white ring-gray-500',
+  },
+  medium: {
+    idle: 'bg-sky-50 text-sky-700 ring-sky-200 hover:bg-sky-100',
+    active: 'bg-sky-600 text-white ring-sky-600',
+  },
+  high: {
+    idle: 'bg-orange-50 text-orange-700 ring-orange-200 hover:bg-orange-100',
+    active: 'bg-orange-500 text-white ring-orange-500',
+  },
+  urgent: {
+    idle: 'bg-red-50 text-red-700 ring-red-200 hover:bg-red-100',
+    active: 'bg-red-600 text-white ring-red-600',
+  },
+}
+
 export default function NewTicket() {
-  const { user, profile, refreshProfile } = useAuth()
+  const { user, profile } = useAuth()
   const navigate = useNavigate()
   const [categories, setCategories] = useState([])
   const [companies, setCompanies] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [savingDefault, setSavingDefault] = useState(false)
-  const [defaultSaved, setDefaultSaved] = useState(false)
 
   const [form, setForm] = useState({
     title: '',
@@ -33,8 +53,7 @@ export default function NewTicket() {
     // — Super Admin sendiri melihat semua. Dibaca sekali saat halaman
     // dibuka; profil sudah pasti termuat di titik ini (dijamin Layout),
     // jadi tidak perlu jadi dependency efek ini (kalau iya, daftar akan
-    // ter-fetch ulang dan mereset pilihan setiap kali tombol "Jadikan
-    // Default" ditekan).
+    // ter-fetch ulang dan mereset pilihan yang sudah dibuat pengguna).
     fetchVisibleCompaniesAndCategories(profile).then(({ companies: c, categories: cat }) => {
       setCompanies(c)
       setCategories(cat)
@@ -50,21 +69,6 @@ export default function NewTicket() {
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  async function handleSaveDefaultCompany() {
-    if (!form.companyId) return
-    setSavingDefault(true)
-    const { error: saveError } = await supabase
-      .from('profiles')
-      .update({ default_company_id: form.companyId })
-      .eq('id', user.id)
-    setSavingDefault(false)
-    if (!saveError) {
-      await refreshProfile()
-      setDefaultSaved(true)
-      setTimeout(() => setDefaultSaved(false), 2500)
-    }
-  }
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -166,19 +170,7 @@ export default function NewTicket() {
         </div>
 
         <div>
-          <div className="flex items-center justify-between">
-            <label className="label" htmlFor="company">Perusahaan</label>
-            <button
-              type="button"
-              onClick={handleSaveDefaultCompany}
-              disabled={savingDefault || !form.companyId}
-              className="mb-1.5 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 disabled:opacity-40"
-              title="Jadikan perusahaan yang dipilih sebagai default setiap kali membuat tiket baru"
-            >
-              <Icon name="star" />
-              {savingDefault ? 'Menyimpan...' : defaultSaved ? 'Tersimpan ✓' : 'Jadikan Default'}
-            </button>
-          </div>
+          <label className="label" htmlFor="company">Perusahaan</label>
           {companies.length === 0 ? (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
               Anda belum memiliki akses ke perusahaan mana pun. Hubungi Super Admin.
@@ -237,12 +229,12 @@ export default function NewTicket() {
                 type="button"
                 key={p.value}
                 onClick={() => update('priority', p.value)}
-                className={`rounded-lg px-2 py-2.5 text-xs font-semibold ring-1 ring-inset transition-colors ${
-                  form.priority === p.value
-                    ? 'bg-brand-600 text-white ring-brand-600'
-                    : 'bg-white text-ink-light ring-gray-200 hover:bg-brand-50'
+                aria-pressed={form.priority === p.value}
+                className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-semibold ring-1 ring-inset transition-colors ${
+                  PRIORITY_BUTTON[p.value][form.priority === p.value ? 'active' : 'idle']
                 }`}
               >
+                {form.priority === p.value && <Icon name="check" className="h-4 w-4" />}
                 {p.label}
               </button>
             ))}

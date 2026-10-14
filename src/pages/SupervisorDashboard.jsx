@@ -12,93 +12,50 @@ import StatusBadge from '../components/StatusBadge'
 import PriorityBadge from '../components/PriorityBadge'
 import { companyRowStyle, companyColor } from '../lib/companyColors'
 import Icon from '../components/Icon'
+import DateInputDMY from '../components/DateInputDMY'
+import { calculateWorkHours, formatWorkHours, isTicketDone } from '../lib/workTime'
+import { useReportFilters } from '../lib/useReportFilters'
+import { STATUS_CHART_COLORS, categoryChartColor } from '../lib/chartColors'
 import { STATUSES, PRIORITIES, formatDateTime, labelFor } from '../data/constants'
 
-const STATUS_COLORS = {
-  open: '#3B82F6',
-  in_progress: '#D97706',
-  pending: '#7C3AED',
-  resolved: '#059669',
-  closed: '#9CA3AF',
-}
-
-// Format Date -> "YYYY-MM-DD" memakai komponen tanggal LOKAL (bukan
-// toISOString, yang mengonversi ke UTC dan bisa menggeser tanggal
-// mundur/maju tergantung zona waktu perangkat, mis. WIB).
-function toDateInputValue(d) {
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function defaultDateRange() {
-  const now = new Date()
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-  return { from: toDateInputValue(firstOfMonth), to: toDateInputValue(now) }
-}
-
-// Waktu pengerjaan (jam): dari created_at sampai resolved_at kalau
-// tiket sudah Selesai/Ditutup (berhenti menghitung, angkanya tetap),
-// atau sampai SAAT INI kalau masih berjalan (terus bertambah selama
-// halaman dibuka/dimuat ulang).
-function calculateWorkHours(ticket) {
-  const start = new Date(ticket.created_at)
-  const isDone = ['resolved', 'closed'].includes(ticket.status)
-  const end = isDone && ticket.resolved_at ? new Date(ticket.resolved_at) : new Date()
-  return (end - start) / 36e5
-}
-
-function formatWorkHours(hours) {
-  if (hours == null || Number.isNaN(hours)) return '—'
-  return `${hours.toFixed(1)} jam`
+// Bar horizontal yang dipakai ketiga grafik (status, kategori,
+// perusahaan): label di sisi kiri tidak terpotong, jumlah tiket tertulis
+// di ujung bar, tinggi grafik menyesuaikan jumlah baris, dan warna tiap
+// bar diambil dari data (entry.color).
+function HBarChart({ data, yWidth = 200 }) {
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(180, data.length * 40 + 30)}>
+      <BarChart data={data} layout="vertical" margin={{ top: 0, right: 32, bottom: 0, left: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#EEF2F0" />
+        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+        <YAxis type="category" dataKey="name" width={yWidth} interval={0} tick={{ fontSize: 11 }} />
+        <Tooltip cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
+        <Bar dataKey="value" name="Jumlah tiket" radius={[0, 6, 6, 0]} barSize={22}>
+          {data.map((entry) => (
+            <Cell key={entry.name} fill={entry.color} />
+          ))}
+          <LabelList dataKey="value" position="right" style={{ fontSize: 11, fill: '#374151' }} />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  )
 }
 
 export default function SupervisorDashboard() {
   const navigate = useNavigate()
-  const { user, profile, refreshProfile } = useAuth()
+  const { profile } = useAuth()
   const [tickets, setTickets] = useState([])
   const [companies, setCompanies] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
-  const [companyFilter, setCompanyFilter] = useState('all')
-  const [categoryFilter, setCategoryFilter] = useState('all')
-  const [statusFilter, setStatusFilter] = useState([])
-  const [{ from: dateFrom, to: dateTo }, setDateRange] = useState(defaultDateRange)
-  const [savingDefault, setSavingDefault] = useState(false)
-  const [defaultSaved, setDefaultSaved] = useState(false)
+  // Filter tersimpan di URL, jadi tetap terpilih setelah kembali dari
+  // detail tiket (lihat lib/useReportFilters.js).
+  const {
+    dateFrom, dateTo, companyFilter, categoryFilter, statusFilter,
+    setDateFrom, setDateTo, resetDateRange, setCompanyFilter, setCategoryFilter,
+    setStatusFilter, toggleStatus,
+  } = useReportFilters()
   const [exporting, setExporting] = useState(false)
-
-  function setDateFrom(value) {
-    setDateRange((r) => ({ ...r, from: value }))
-  }
-  function setDateTo(value) {
-    setDateRange((r) => ({ ...r, to: value }))
-  }
-  function resetDateRange() {
-    setDateRange(defaultDateRange())
-  }
-
-  // Status: array kosong berarti "semua status" (tidak difilter).
-  function toggleStatus(value) {
-    setStatusFilter((prev) =>
-      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
-    )
-  }
-
-  async function handleSaveDefaultCompany() {
-    setSavingDefault(true)
-    const { error } = await supabase
-      .from('profiles')
-      .update({ default_company_id: companyFilter === 'all' ? null : companyFilter })
-      .eq('id', user.id)
-    setSavingDefault(false)
-    if (!error) {
-      await refreshProfile()
-      setDefaultSaved(true)
-      setTimeout(() => setDefaultSaved(false), 2500)
-    }
-  }
 
   useEffect(() => {
     async function load() {
@@ -158,6 +115,7 @@ export default function SupervisorDashboard() {
     return STATUSES.map((s) => ({
       name: s.label,
       key: s.value,
+      color: STATUS_CHART_COLORS[s.value],
       value: filtered.filter((t) => t.status === s.value).length,
     }))
   }, [filtered])
@@ -165,6 +123,7 @@ export default function SupervisorDashboard() {
   const byCategory = useMemo(() => {
     return categories.map((c) => ({
       name: c.name,
+      color: categoryChartColor(c.name),
       value: filtered.filter((t) => t.category_id === c.id).length,
     }))
   }, [filtered, categories])
@@ -307,12 +266,7 @@ export default function SupervisorDashboard() {
         <div>
           <h1 className="font-display text-2xl font-bold text-ink">Laporan &amp; Analitik</h1>
           <p className="text-sm text-ink-light">
-            Ringkasan kinerja penanganan gangguan seluruh perusahaan · Default Anda:{' '}
-            <span className="font-medium text-ink">
-              {profile?.default_company_id
-                ? companies.find((c) => c.id === profile.default_company_id)?.name || 'Semua Perusahaan'
-                : 'Semua Perusahaan'}
-            </span>
+            Ringkasan kinerja penanganan gangguan — mengikuti pilihan filter Perusahaan di bawah.
           </p>
         </div>
         <button onClick={exportXlsx} disabled={exporting} className="btn-secondary">
@@ -323,22 +277,22 @@ export default function SupervisorDashboard() {
       <div className="mb-6 flex flex-wrap items-end gap-3">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-ink-light">Dari</span>
-          <input
-            type="date"
-            className="input w-auto"
+          <DateInputDMY
+            className="w-40"
+            ariaLabel="Dari tanggal"
             value={dateFrom}
             max={dateTo || undefined}
-            onChange={(e) => setDateFrom(e.target.value)}
+            onChange={setDateFrom}
           />
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-ink-light">Sampai</span>
-          <input
-            type="date"
-            className="input w-auto"
+          <DateInputDMY
+            className="w-40"
+            ariaLabel="Sampai tanggal"
             value={dateTo}
             min={dateFrom || undefined}
-            onChange={(e) => setDateTo(e.target.value)}
+            onChange={setDateTo}
           />
         </div>
         <button type="button" onClick={resetDateRange} className="btn-ghost text-xs inline-flex items-center gap-1.5">
@@ -349,16 +303,6 @@ export default function SupervisorDashboard() {
           <option value="all">Semua Perusahaan</option>
           {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <button
-          type="button"
-          onClick={handleSaveDefaultCompany}
-          disabled={savingDefault}
-          className="btn-ghost text-xs inline-flex items-center gap-1.5"
-          title="Jadikan perusahaan yang sedang dipilih sebagai tampilan default Anda setiap kali membuka menu ini"
-        >
-          <Icon name="star" />
-          {savingDefault ? 'Menyimpan...' : defaultSaved ? 'Tersimpan ✓' : 'Jadikan Default'}
-        </button>
         <select className="input sm:max-w-xs" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
           <option value="all">Semua Kategori</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -407,59 +351,17 @@ export default function SupervisorDashboard() {
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card p-5">
           <h2 className="mb-3 font-display text-sm font-bold text-ink">Tiket per Status</h2>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={byStatus} margin={{ left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EEF2F0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-15} textAnchor="end" height={50} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                {byStatus.map((entry) => (
-                  <Cell key={entry.key} fill={STATUS_COLORS[entry.key]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <HBarChart data={byStatus} yWidth={150} />
         </div>
 
         <div className="card p-5">
           <h2 className="mb-3 font-display text-sm font-bold text-ink">Tiket per Kategori</h2>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={byCategory} margin={{ left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EEF2F0" />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={60} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Bar dataKey="value" fill="#2F6F5E" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <HBarChart data={byCategory} yWidth={190} />
         </div>
 
         <div className="card p-5 lg:col-span-2">
           <h2 className="mb-3 font-display text-sm font-bold text-ink">Tiket per Perusahaan</h2>
-          {/* Bar horizontal: nama perusahaan di sisi kiri, tidak terpotong
-              atau terlewati berapa pun jumlah perusahaannya. Tinggi grafik
-              menyesuaikan jumlah perusahaan yang ditampilkan. */}
-          <ResponsiveContainer width="100%" height={Math.max(180, byCompany.length * 40 + 30)}>
-            <BarChart data={byCompany} layout="vertical" margin={{ top: 0, right: 32, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#EEF2F0" />
-              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-              <YAxis
-                type="category"
-                dataKey="name"
-                width={200}
-                interval={0}
-                tick={{ fontSize: 11 }}
-              />
-              <Tooltip cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
-              <Bar dataKey="value" name="Jumlah tiket" radius={[0, 6, 6, 0]} barSize={22}>
-                {byCompany.map((entry) => (
-                  <Cell key={entry.name} fill={entry.color} />
-                ))}
-                <LabelList dataKey="value" position="right" style={{ fontSize: 11, fill: '#374151' }} />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <HBarChart data={byCompany} yWidth={200} />
         </div>
       </div>
 
@@ -475,6 +377,7 @@ export default function SupervisorDashboard() {
                 <th className="px-5 py-3 font-semibold">Nomor</th>
                 <th className="px-5 py-3 font-semibold">Judul</th>
                 <th className="px-5 py-3 font-semibold">Perusahaan</th>
+                <th className="px-5 py-3 font-semibold">Kategori</th>
                 <th className="px-5 py-3 font-semibold">Prioritas</th>
                 <th className="px-5 py-3 font-semibold">Status</th>
                 <th className="px-5 py-3 font-semibold">Waktu Pengerjaan</th>
@@ -484,7 +387,7 @@ export default function SupervisorDashboard() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((t) => {
-                const isDone = ['resolved', 'closed'].includes(t.status)
+                const isDone = isTicketDone(t)
                 return (
                   <tr
                     key={t.id}
@@ -496,6 +399,7 @@ export default function SupervisorDashboard() {
                     <td className="whitespace-nowrap px-5 py-3 font-mono text-xs text-brand-600">{t.ticket_number}</td>
                     <td className="px-5 py-3 text-ink">{t.title}</td>
                     <td className="px-5 py-3 text-ink-light">{t.companies?.name}</td>
+                    <td className="px-5 py-3 text-ink-light">{t.categories?.name || '—'}</td>
                     <td className="px-5 py-3"><PriorityBadge priority={t.priority} /></td>
                     <td className="px-5 py-3"><StatusBadge status={t.status} /></td>
                     <td className="whitespace-nowrap px-5 py-3 text-ink-light">

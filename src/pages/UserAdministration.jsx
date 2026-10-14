@@ -6,6 +6,7 @@ import Icon from '../components/Icon'
 import { ROLE_LABELS, formatDateTime } from '../data/constants'
 import { combinePhoneNumber, COUNTRY_CODES, normalizeWhatsappNumber, WHATSAPP_FORMAT_HINT } from '../lib/whatsapp'
 import { AREAS, companiesInArea } from '../lib/areas'
+import { companyRowStyle } from '../lib/companyColors'
 
 const ROLE_ORDER = ['user', 'support', 'supervisor', 'superadmin']
 const EMPTY_NEW_USER = {
@@ -661,10 +662,23 @@ export default function UserAdministration() {
                   const isSelf = u.id === user.id
                   const isPending = rowPendingId === u.id
                   const isActive = activeId === u.id
+                  // Latar baris mengikuti warna unik perusahaan default
+                  // pengguna; pengguna tanpa perusahaan tetap putih.
+                  const companyName = u.default_company_id ? companyNameById[u.default_company_id] : null
+                  const rowColor = companyName ? companyRowStyle(companyName) : undefined
 
                   return (
                     <Fragment key={u.id}>
-                    <tr className={isActive && (activeMode === 'edit' || activeMode === 'password') ? 'bg-brand-50/30' : 'hover:bg-brand-50/30'}>
+                    <tr
+                      style={rowColor}
+                      className={
+                        rowColor
+                          ? 'hover:brightness-95'
+                          : isActive && (activeMode === 'edit' || activeMode === 'password')
+                            ? 'bg-brand-50/30'
+                            : 'hover:bg-brand-50/30'
+                      }
+                    >
                       <td className="px-4 py-3">
                         <div className="font-medium text-ink">
                           {u.full_name}
@@ -746,7 +760,7 @@ export default function UserAdministration() {
                       </td>
                     </tr>
                     {isActive && activeMode === 'edit' && (
-                      <tr className="bg-brand-50/30">
+                      <tr className="bg-brand-50/30" style={rowColor}>
                         <td colSpan={6} className="px-4 pb-4 pt-1">
                           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div>
@@ -842,7 +856,7 @@ export default function UserAdministration() {
                       </tr>
                     )}
                     {isActive && activeMode === 'password' && (
-                      <tr className="bg-brand-50/30">
+                      <tr className="bg-brand-50/30" style={rowColor}>
                         <td colSpan={6} className="px-4 pb-4 pt-1">
                           <div className="max-w-sm">
                             <label className="label">Kata Sandi Baru</label>
@@ -873,7 +887,7 @@ export default function UserAdministration() {
                       </tr>
                     )}
                     {isActive && activeMode === 'access' && (
-                      <tr className="bg-brand-50/30">
+                      <tr className="bg-brand-50/30" style={rowColor}>
                         <td colSpan={6} className="px-5 py-4">
                           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6">
                             <div>

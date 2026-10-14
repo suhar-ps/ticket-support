@@ -7,6 +7,7 @@ import PriorityBadge from '../components/PriorityBadge'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { STATUSES, formatDateTime, labelFor } from '../data/constants'
 import { companyCardStyle } from '../lib/companyColors'
+import { calculateWorkHours, formatWorkDays, formatWorkHours } from '../lib/workTime'
 
 export default function TicketDetail() {
   const { id } = useParams()
@@ -62,6 +63,10 @@ export default function TicketDetail() {
     ? (Date.now() - new Date(ticket.resolved_at).getTime()) / 36e5
     : null
   const isLockedAfter24h = isTicketDone && hoursSinceResolved !== null && hoursSinceResolved > 24
+
+  // Waktu pengerjaan: created_at -> resolved_at (selesai), atau -> sekarang (berjalan).
+  const workHours = ticket ? calculateWorkHours(ticket) : null
+  const workDays = formatWorkDays(workHours)
 
   const showResendLink =
     updates.length > 0 && lastActivityIsPelapor === currentUserIsPelapor && !isLockedAfter24h
@@ -316,10 +321,16 @@ export default function TicketDetail() {
       {/* Seluruh kartu tiket diberi warna latar sesuai perusahaannya. */}
       <div className="card overflow-hidden" style={companyCardStyle(ticket.companies?.name)}>
         <div className="p-6">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2">
             <span className="font-mono text-sm font-semibold text-brand-600">{ticket.ticket_number}</span>
-            <StatusBadge status={ticket.status} />
-            <PriorityBadge priority={ticket.priority} />
+            <span className="inline-flex items-center gap-1.5">
+              <span className="text-xs font-medium text-ink-light">Status:</span>
+              <StatusBadge status={ticket.status} />
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="text-xs font-medium text-ink-light">Prioritas:</span>
+              <PriorityBadge priority={ticket.priority} />
+            </span>
           </div>
           <h1 className="font-display text-xl font-bold text-ink">{ticket.title}</h1>
           <p className="mt-2 whitespace-pre-wrap text-sm text-ink-light">{ticket.description}</p>
@@ -360,6 +371,14 @@ export default function TicketDetail() {
             <div>
               <dt className="text-xs text-ink-light">Selesai</dt>
               <dd className="font-medium text-ink">{formatDateTime(ticket.resolved_at)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-ink-light">Waktu Pengerjaan</dt>
+              <dd className="font-medium text-ink">
+                {formatWorkHours(workHours)}
+                {workDays && <span className="ml-1 text-xs font-normal text-ink-light">({workDays})</span>}
+                {!isTicketDone && <span className="ml-1 text-[10px] font-normal text-amber-600">(berjalan)</span>}
+              </dd>
             </div>
           </dl>
         </div>
