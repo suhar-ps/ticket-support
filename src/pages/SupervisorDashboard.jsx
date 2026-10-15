@@ -6,7 +6,7 @@ import {
 } from 'recharts'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
-import { fetchVisibleCompaniesAndCategories } from '../lib/access'
+import { fetchQueueCompaniesAndCategories } from '../lib/access'
 import LoadingSpinner from '../components/LoadingSpinner'
 import StatusBadge from '../components/StatusBadge'
 import PriorityBadge from '../components/PriorityBadge'
@@ -60,15 +60,16 @@ export default function SupervisorDashboard() {
   useEffect(() => {
     async function load() {
       setLoading(true)
-      // Daftar tiket sudah otomatis dibatasi RLS ke perusahaan+kategori
-      // yang terkait ke pengguna ini (kecuali Super Admin, yang melihat
-      // semua). Opsi filter juga disamakan.
+      // Daftar tiket sudah otomatis dibatasi RLS ke perusahaan yang diberi
+      // akses ke pengguna ini (Kelola Akses), kecuali Super Admin yang
+      // melihat semua perusahaan. Pilihan perusahaan disamakan; kategori
+      // tidak membatasi sehingga semua ditampilkan.
       const [{ data: ticketData }, { companies: companyData, categories: categoryData }] = await Promise.all([
         supabase
           .from('tickets')
           .select('*, categories(name), companies(name), reporter:profiles!tickets_created_by_fkey(full_name), assignee:profiles!tickets_assigned_to_fkey(full_name)')
           .order('created_at', { ascending: false }),
-        fetchVisibleCompaniesAndCategories(profile),
+        fetchQueueCompaniesAndCategories(profile),
       ])
       setTickets(ticketData || [])
       setCompanies(companyData)

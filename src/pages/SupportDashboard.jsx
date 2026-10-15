@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
-import { fetchVisibleCompaniesAndCategories } from '../lib/access'
+import { fetchQueueCompaniesAndCategories } from '../lib/access'
 import TicketCard from '../components/TicketCard'
 import LoadingSpinner from '../components/LoadingSpinner'
 import Icon from '../components/Icon'
@@ -30,9 +30,9 @@ export default function SupportDashboard() {
     async function load() {
       setLoading(true)
       // Daftar tiket sendiri sudah otomatis dibatasi RLS ke
-      // perusahaan+kategori yang terkait ke pengguna ini (kecuali Super
-      // Admin, yang melihat semua). Opsi filter juga disamakan supaya
-      // tidak menampilkan pilihan yang hasilnya pasti kosong.
+      // perusahaan yang diberi akses ke pengguna ini (Kelola Akses), kecuali
+      // Super Admin yang melihat semua perusahaan. Pilihan perusahaan
+      // disamakan; kategori tidak membatasi sehingga semua ditampilkan.
       const [{ data: ticketData }, { companies: companyData, categories: categoryData }] = await Promise.all([
         supabase
           .from('tickets')
@@ -40,7 +40,7 @@ export default function SupportDashboard() {
             '*, categories(name), companies(name), reporter:profiles!tickets_created_by_fkey(full_name)'
           )
           .order('created_at', { ascending: false }),
-        fetchVisibleCompaniesAndCategories(profile),
+        fetchQueueCompaniesAndCategories(profile),
       ])
       if (active) {
         setTickets(ticketData || [])

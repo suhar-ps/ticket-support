@@ -35,3 +35,19 @@ export async function fetchVisibleCompaniesAndCategories(profile) {
 
   return { companies, categories }
 }
+
+/**
+ * Perusahaan & kategori untuk halaman ANTRIAN (Antrian Support, Laporan &
+ * Analitik). Aturannya hanya berdasarkan akses PERUSAHAAN:
+ *   - Tim Support & Supervisor: perusahaan yang dicentang di Administrasi
+ *     Pengguna > Kelola Akses (tabel user_companies).
+ *   - Super Admin: semua perusahaan.
+ * Kategori tidak membatasi antrian, jadi semua kategori ditampilkan
+ * sebagai pilihan filter. (Akses kategori hanya dipakai di form Buat Tiket.)
+ * Harus sejalan dengan fungsi can_access_ticket_scope di database.
+ */
+export async function fetchQueueCompaniesAndCategories(profile) {
+  const { companies } = await fetchVisibleCompaniesAndCategories(profile)
+  const { data: categories } = await supabase.from('categories').select('id, name').order('name')
+  return { companies, categories: categories || [] }
+}

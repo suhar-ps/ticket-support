@@ -834,6 +834,8 @@ export default function UserAdministration() {
                               ) : editRole !== u.role ? (
                                 <p className="mt-1.5 text-xs text-amber-700">
                                   Berlaku penuh setelah pengguna logout &amp; login kembali.
+                                  {['support', 'supervisor'].includes(editRole) &&
+                                    ' Akses semua kategori diberikan otomatis; akses perusahaan tetap sesuai pengaturan Kelola Akses.'}
                                 </p>
                               ) : null}
                             </div>
